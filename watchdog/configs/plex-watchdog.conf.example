@@ -1,0 +1,45 @@
+# /opt/swizzin/watchdog.d/plex.conf - Plex watchdog configuration
+
+# ==============================================================================
+# Service Identification
+# ==============================================================================
+
+# systemd service name
+SERVICE_NAME="plexmediaserver"
+
+# Display name for notifications
+APP_NAME="Plex"
+
+# ==============================================================================
+# Health Check
+# ==============================================================================
+
+# HTTP endpoint to check for health
+# Plex /identity returns XML with a MediaContainer element (no auth required)
+HEALTH_URL="http://127.0.0.1:32400/identity"
+
+# Timeout for HTTP health check in seconds (optional, uses global default)
+# HEALTH_TIMEOUT=10
+
+# String that must appear in the HTTP response (optional)
+# Plex /identity returns XML like: <MediaContainer size="0" ...>
+HEALTH_EXPECT="MediaContainer"
+
+# ==============================================================================
+# Cooldown Overrides (optional)
+# ==============================================================================
+# Uncomment to override global defaults
+
+# Maximum restart attempts within the cooldown window
+# MAX_RESTARTS=3
+
+# Cooldown window in seconds
+# COOLDOWN_WINDOW=900
+
+# ==============================================================================
+# File Paths (optional)
+# ==============================================================================
+# Uncomment to override auto-generated paths
+
+# LOG_FILE="/var/log/watchdog/plex.log"
+# STATE_FILE="/var/lib/watchdog/plex.state"

@@ -1,0 +1,665 @@
+#===============================================================================
+# Swizzin Backup Exclusions (BorgBackup)
+# Official Swizzin apps + STiXzoOR/swizzin-scripts custom apps
+#
+# Location: /etc/swizzin-excludes.txt
+#
+# IMPORTANT: /mnt/symlinks is NOT excluded - it contains arr root folder symlinks
+#===============================================================================
+
+#===============================================================================
+# ZURG DATA DIRECTORY (caches, state files — zurgtorrent included via --pattern)
+#===============================================================================
+
+# Zurg in user config directory
+home/*/.config/zurg/data
+home/*/.config/zurg/data/**
+
+# Zurg strm files (regenerated)
+home/*/.config/zurg/strm
+home/*/.config/zurg/strm/**
+
+# Alternative zurg locations
+opt/zurg/data
+opt/zurg/data/**
+opt/zurg-testing/data
+opt/zurg-testing/data/**
+
+# Standard rclone cache
+home/*/.cache/rclone
+home/*/.cache/rclone/**
+var/cache/rclone
+var/cache/rclone/**
+root/.cache/rclone
+root/.cache/rclone/**
+
+#===============================================================================
+# MOUNT POINTS - EXCLUDE REMOTE MOUNTS BUT KEEP /mnt/symlinks
+#===============================================================================
+
+# Zurg/rclone remote mounts (NOT local symlinks!)
+mnt/zurg
+mnt/zurg/**
+mnt/realdebrid
+mnt/realdebrid/**
+mnt/remote
+mnt/remote/**
+mnt/merged
+mnt/merged/**
+mnt/unionfs
+mnt/unionfs/**
+
+# Media mount points
+media
+media/**
+
+# User mounts (but not symlinks)
+home/*/mnt
+home/*/mnt/**
+home/*/media
+home/*/media/**
+home/*/rclone
+home/*/rclone/**
+home/*/merged
+home/*/merged/**
+
+# Zurg internal mount
+home/*/.config/zurg/mnt
+home/*/.config/zurg/mnt/**
+
+#===============================================================================
+# OFFICIAL SWIZZIN APPS - LOGS AND CACHES
+#===============================================================================
+
+# === SONARR (+ multi-instance) ===
+home/*/.config/Sonarr/logs.db
+home/*/.config/Sonarr/logs.db-*
+home/*/.config/Sonarr/logs
+home/*/.config/Sonarr/logs/**
+home/*/.config/Sonarr/MediaCover
+home/*/.config/Sonarr/MediaCover/**
+home/*/.config/Sonarr/UpdateLogs
+home/*/.config/Sonarr/UpdateLogs/**
+home/*/.config/Sonarr/updates
+home/*/.config/Sonarr/updates/**
+home/*/.config/sonarr-*/logs.db
+home/*/.config/sonarr-*/logs.db-*
+home/*/.config/sonarr-*/logs
+home/*/.config/sonarr-*/logs/**
+home/*/.config/sonarr-*/MediaCover
+home/*/.config/sonarr-*/MediaCover/**
+home/*/.config/sonarr-*/UpdateLogs
+home/*/.config/sonarr-*/UpdateLogs/**
+home/*/.config/sonarr-*/updates
+home/*/.config/sonarr-*/updates/**
+
+# === RADARR (+ multi-instance) ===
+home/*/.config/Radarr/logs.db
+home/*/.config/Radarr/logs.db-*
+home/*/.config/Radarr/logs
+home/*/.config/Radarr/logs/**
+home/*/.config/Radarr/MediaCover
+home/*/.config/Radarr/MediaCover/**
+home/*/.config/Radarr/UpdateLogs
+home/*/.config/Radarr/UpdateLogs/**
+home/*/.config/Radarr/Update
+home/*/.config/Radarr/Update/**
+home/*/.config/radarr-*/logs.db
+home/*/.config/radarr-*/logs.db-*
+home/*/.config/radarr-*/logs
+home/*/.config/radarr-*/logs/**
+home/*/.config/radarr-*/MediaCover
+home/*/.config/radarr-*/MediaCover/**
+home/*/.config/radarr-*/UpdateLogs
+home/*/.config/radarr-*/UpdateLogs/**
+home/*/.config/radarr-*/updates
+home/*/.config/radarr-*/updates/**
+
+# === LIDARR ===
+home/*/.config/Lidarr/logs.db
+home/*/.config/Lidarr/logs.db-*
+home/*/.config/Lidarr/logs
+home/*/.config/Lidarr/logs/**
+home/*/.config/Lidarr/MediaCover
+home/*/.config/Lidarr/MediaCover/**
+home/*/.config/Lidarr/UpdateLogs
+home/*/.config/Lidarr/UpdateLogs/**
+
+# === PROWLARR ===
+home/*/.config/Prowlarr/logs.db
+home/*/.config/Prowlarr/logs.db-*
+home/*/.config/Prowlarr/logs
+home/*/.config/Prowlarr/logs/**
+home/*/.config/Prowlarr/UpdateLogs
+home/*/.config/Prowlarr/UpdateLogs/**
+
+# === BAZARR ===
+# Base instance: ~/.config/bazarr/ (NOT /opt/bazarr/data/ - auto-update wipes that!)
+# Multi-instance: ~/.config/bazarr-*/
+# Note: Data stored in ~/.config/ is protected from bazarr's destructive auto-update
+# Migration: bash bazarr.sh --migrate
+home/*/.config/bazarr/log
+home/*/.config/bazarr/log/**
+home/*/.config/bazarr/cache
+home/*/.config/bazarr/cache/**
+home/*/.config/bazarr-*/log
+home/*/.config/bazarr-*/log/**
+home/*/.config/bazarr-*/cache
+home/*/.config/bazarr-*/cache/**
+
+# === AUTOBRR ===
+home/*/.config/autobrr/logs
+home/*/.config/autobrr/logs/**
+
+# === MEDUSA ===
+opt/medusa/logs
+opt/medusa/logs/**
+opt/medusa/cache
+opt/medusa/cache/**
+
+# === SICKCHILL / SICKGEAR ===
+opt/sickchill/Logs
+opt/sickchill/Logs/**
+opt/sickchill/cache
+opt/sickchill/cache/**
+opt/sickgear/Logs
+opt/sickgear/Logs/**
+opt/sickgear/cache
+opt/sickgear/cache/**
+
+# === MYLAR ===
+home/*/.config/mylar/logs
+home/*/.config/mylar/logs/**
+home/*/.config/mylar/cache
+home/*/.config/mylar/cache/**
+
+# === OMBI ===
+etc/Ombi/Logs
+etc/Ombi/Logs/**
+
+# === TAUTULLI ===
+opt/tautulli/logs
+opt/tautulli/logs/**
+opt/tautulli/cache
+opt/tautulli/cache/**
+
+# === JACKETT ===
+home/*/.config/Jackett/log*.txt
+home/*/.config/Jackett/updater
+
+# === NZBHYDRA ===
+home/*/.config/nzbhydra2/logs
+home/*/.config/nzbhydra2/logs/**
+
+# === CALIBRE-WEB ===
+home/*/.config/calibre-web/cache
+home/*/.config/calibre-web/cache/**
+
+# === MANGO ===
+opt/mango/log
+opt/mango/log/**
+
+# === NAVIDROME ===
+home/*/.config/navidrome/cache
+home/*/.config/navidrome/cache/**
+
+# === FILEBROWSER ===
+home/*/.config/Filebrowser/log
+home/*/.config/Filebrowser/log/**
+
+# === PYLOAD ===
+home/*/.config/pyload/logs
+home/*/.config/pyload/logs/**
+home/*/.config/pyload/tmp
+home/*/.config/pyload/tmp/**
+
+# === SYNCTHING ===
+home/*/.config/syncthing/index*
+home/*/.config/syncthing/index*/**
+
+# === NEXTCLOUD ===
+var/www/nextcloud/data/*/cache
+var/www/nextcloud/data/*/cache/**
+var/www/nextcloud/data/appdata_*/preview
+var/www/nextcloud/data/appdata_*/preview/**
+
+# === NETDATA ===
+# Historical metrics (regeneratable), cache, logs — only /etc/netdata config is preserved
+var/lib/netdata
+var/lib/netdata/**
+var/cache/netdata
+var/cache/netdata/**
+var/log/netdata
+var/log/netdata/**
+
+# === ADGUARD HOME ===
+# Query logs and stats databases are regeneratable; keep config + filter rules only.
+opt/AdGuardHome/data/querylog*
+opt/AdGuardHome/data/querylog*/**
+opt/AdGuardHome/data/stats.db
+opt/AdGuardHome/data/sessions.db
+opt/AdGuardHome/data/filters
+opt/AdGuardHome/data/filters/**
+
+#===============================================================================
+# STiXzoOR CUSTOM APPS
+#===============================================================================
+
+# === OVERSEERR / JELLYSEERR / SEERR ===
+home/*/.config/overseerr/logs
+home/*/.config/overseerr/logs/**
+home/*/.config/overseerr/cache
+home/*/.config/overseerr/cache/**
+home/*/.config/jellyseerr/logs
+home/*/.config/jellyseerr/logs/**
+home/*/.config/jellyseerr/cache
+home/*/.config/jellyseerr/cache/**
+home/*/.config/Seerr/logs
+home/*/.config/Seerr/logs/**
+home/*/.config/Seerr/cache
+home/*/.config/Seerr/cache/**
+
+# === DECYPHARR ===
+home/*/.config/Decypharr/logs
+home/*/.config/Decypharr/logs/**
+home/*/.config/Decypharr/cache
+home/*/.config/Decypharr/cache/**
+
+# === NOTIFIARR ===
+home/*/.config/Notifiarr/logs
+home/*/.config/Notifiarr/logs/**
+
+# === BYPARR ===
+home/*/.config/Byparr/logs
+home/*/.config/Byparr/logs/**
+home/*/.config/Byparr/.cache
+home/*/.config/Byparr/.cache/**
+home/*/.config/Byparr/camoufox
+home/*/.config/Byparr/camoufox/**
+
+# === FLARESOLVERR ===
+home/*/.config/FlareSolverr/logs
+home/*/.config/FlareSolverr/logs/**
+home/*/.config/FlareSolverr/.config
+home/*/.config/FlareSolverr/.config/**
+
+# === HUNTARR ===
+home/*/.config/Huntarr/logs
+home/*/.config/Huntarr/logs/**
+
+# === SUBGEN ===
+home/*/.config/Subgen/logs
+home/*/.config/Subgen/logs/**
+home/*/.config/Subgen/models
+home/*/.config/Subgen/models/**
+home/*/.cache/whisper
+home/*/.cache/whisper/**
+
+# === LINGARR ===
+# Keep config (SQLite DB at opt/lingarr/config/), exclude docker-compose.yml (recreated by installer)
+opt/lingarr/docker-compose.yml
+
+# === MDBLISTARR ===
+# Keep db (SQLite DB at opt/mdblistarr/db/), exclude docker-compose.yml (recreated by installer)
+opt/mdblistarr/docker-compose.yml
+
+# === CLEANUPARR ===
+opt/cleanuparr/logs
+opt/cleanuparr/logs/**
+
+# === STREMTHRU ===
+# Keep data dir (SQLite DB, hashlists), exclude cache and docker-compose (recreated by installer)
+opt/stremthru/data/cache
+opt/stremthru/data/cache/**
+opt/stremthru/docker-compose.yml
+
+# === AIOSTREAMS ===
+# Keep .env (SECRET_KEY + AIOSTREAMS_AUTH — irreproducible), data/ (configured
+# user + addon state), AND docker-compose.yml (hand-customised to host-network +
+# PORT 10133, which the installer does NOT regenerate — so it must be backed up).
+# Exclude only runtime logs/caches.
+opt/aiostreams/data/logs
+opt/aiostreams/data/logs/**
+opt/aiostreams/data/cache
+opt/aiostreams/data/cache/**
+
+# === MEDIAFUSION ===
+# Keep pgdata and redis dirs, exclude docker-compose (recreated by installer)
+opt/mediafusion/docker-compose.yml
+# Redis AOF incremental files change constantly during backup (causes rc 1 warning)
+opt/mediafusion/redis/appendonlydir/appendonly.aof.*.incr.aof
+
+# === DOCKER ENGINE STATE ===
+# Container json.log files are append-only and grow during backup → rc 1 noise.
+# Container metadata, images, and volumes are preserved; logs are recreatable.
+var/lib/docker/containers/*/*-json.log
+var/lib/docker/containers/*/*-json.log.*
+# Runtime/transient docker state
+var/lib/docker/tmp
+var/lib/docker/tmp/**
+var/lib/docker/overlay2/*/merged
+var/lib/docker/overlay2/*/merged/**
+
+# === ZILEAN ===
+# Keep pgdata and data dirs, exclude docker-compose (recreated by installer)
+opt/zilean/docker-compose.yml
+
+# === AUTOPULSE ===
+# Keep config.yaml and data dir (SQLite DB), exclude docker-compose (recreated by installer)
+opt/autopulse/docker-compose.yml
+
+# === NZBDAV ===
+# Keep config dir (SQLite DB), exclude docker-compose (recreated by installer)
+opt/nzbdav/docker-compose.yml
+
+# === EASYNEWS-INDEXER ===
+# Keep .env (Easynews creds + Newznab API key — the only stateful bits).
+# Exclude docker-compose.yml: recreated by the installer with current config.
+opt/easynews-indexer/docker-compose.yml
+
+# === LITTERBOX ===
+# Stateless: no DB, no config, no secrets. OAuth token lives in user's browser
+# localStorage. The compose file is recreated by the installer; nothing else
+# in /opt/litterbox/ is worth preserving.
+opt/litterbox/docker-compose.yml
+
+# === BABYSITARR ===
+# Keep .env (RD key, SMTP, Discord webhook) and data/ (babysitarr_state.json).
+# Exclude src/ (git clone — reinstallable) and docker-compose.yml (regenerated
+# by the installer with current arr discovery).
+opt/babysitarr/docker-compose.yml
+opt/babysitarr/src
+opt/babysitarr/src/**
+opt/babysitarr/data/logs
+opt/babysitarr/data/logs/**
+
+# === NZBHYDRA2 ===
+# Keep config/nzbhydra.yml (indexer config). EXCLUDE config/database/ — it is
+# regeneratable H2 search-history cache (bloated to 245GB and polluted backups
+# 2026-06-12); Hydra rebuilds it from nzbhydra.yml on restore. Also exclude logs,
+# Hydra's own weekly backups, wrapper temp files, and the compose file.
+opt/nzbhydra2/docker-compose.yml
+opt/nzbhydra2/config/database
+opt/nzbhydra2/config/database/**
+opt/nzbhydra2/config/logs
+opt/nzbhydra2/config/logs/**
+opt/nzbhydra2/config/backup
+opt/nzbhydra2/config/backup/**
+opt/nzbhydra2/config/yamlBackup
+opt/nzbhydra2/config/yamlBackup/**
+opt/nzbhydra2/config/wrapper.log*
+
+# === NEWTARR ===
+# Keep config/data, exclude code (reinstallable via git clone) and venv
+opt/newtarr/.git
+opt/newtarr/.git/**
+opt/newtarr/.venv
+opt/newtarr/.venv/**
+opt/newtarr/frontend/node_modules
+opt/newtarr/frontend/node_modules/**
+
+# === CHECKRR ===
+opt/checkrr/docker-compose.yml
+
+# === SWAPARR ===
+# No persistent data — docker-compose.yml recreated by installer on --update
+opt/swaparr/docker-compose.yml
+
+# === TRACEARR ===
+opt/tracearr/docker-compose.yml
+
+# === POSTERIZARR ===
+opt/posterizarr/docker-compose.yml
+opt/posterizarr/assets/**
+opt/posterizarr/assetsbackup/**
+
+# === ORGANIZR ===
+srv/organizr/api/logs
+srv/organizr/api/logs/**
+srv/organizr_db/logs
+srv/organizr_db/logs/**
+var/log/organizr
+var/log/organizr/**
+
+# === WATCHDOG ===
+var/log/watchdog
+var/log/watchdog/**
+
+#===============================================================================
+# MEDIA SERVERS
+#===============================================================================
+
+# === EMBY ===
+var/lib/emby/transcoding-temp
+var/lib/emby/transcoding-temp/**
+var/lib/emby/cache
+var/lib/emby/cache/**
+var/lib/emby/logs
+var/lib/emby/logs/**
+var/lib/emby/metadata/library
+var/lib/emby/metadata/library/**
+var/lib/emby/metadata/views
+var/lib/emby/metadata/views/**
+var/lib/emby/metadata/People
+var/lib/emby/metadata/People/**
+
+# === JELLYFIN ===
+var/lib/jellyfin/transcodes
+var/lib/jellyfin/transcodes/**
+var/lib/jellyfin/data/transcodes
+var/lib/jellyfin/data/transcodes/**
+var/cache/jellyfin
+var/cache/jellyfin/**
+var/log/jellyfin
+var/log/jellyfin/**
+var/lib/jellyfin/metadata
+var/lib/jellyfin/metadata/**
+
+# === PLEX ===
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Cache
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Cache/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Codecs
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Codecs/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Crash Reports
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Crash Reports/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Logs
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Logs/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Metadata
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Metadata/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Plug-in Support
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Plug-in Support/**
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Media
+var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Media/**
+**/Transcode
+**/Transcode/**
+
+# === AIRSONIC ===
+var/lib/airsonic/lucene*
+var/lib/airsonic/lucene*/**
+
+# === NAVIDROME ===
+var/lib/navidrome/cache
+var/lib/navidrome/cache/**
+
+#===============================================================================
+# DOWNLOAD CLIENTS
+#===============================================================================
+
+# === TRANSMISSION ===
+home/*/.config/transmission-daemon/resume
+home/*/.config/transmission-daemon/resume/**
+home/*/.config/transmission-daemon/torrents
+home/*/.config/transmission-daemon/torrents/**
+
+# === DELUGE ===
+home/*/.config/deluge/state
+home/*/.config/deluge/state/**
+
+# === QBITTORRENT ===
+home/*/.config/qBittorrent/BT_backup
+home/*/.config/qBittorrent/BT_backup/**
+home/*/.local/share/qBittorrent/BT_backup
+home/*/.local/share/qBittorrent/BT_backup/**
+
+# === RTORRENT ===
+home/*/.sessions
+home/*/.sessions/**
+
+# === NZBGET ===
+home/*/.config/nzbget/queue
+home/*/.config/nzbget/queue/**
+home/*/.config/nzbget/tmp
+home/*/.config/nzbget/tmp/**
+
+# === SABNZBD ===
+home/*/.sabnzbd/logs
+home/*/.sabnzbd/logs/**
+home/*/.sabnzbd/cache
+home/*/.sabnzbd/cache/**
+
+# === DOWNLOAD DIRECTORIES ===
+home/*/Downloads
+home/*/Downloads/**
+home/*/torrents
+home/*/torrents/**
+home/*/incomplete
+home/*/incomplete/**
+
+#===============================================================================
+# SYSTEM
+#===============================================================================
+
+# Logs
+var/log
+var/log/**
+root/logs
+root/logs/**
+home/*/logs
+home/*/logs/**
+
+# Caches
+var/cache
+var/cache/**
+var/tmp
+var/tmp/**
+tmp
+tmp/**
+
+# User caches
+home/*/.cache
+home/*/.cache/**
+home/*/.local/share/Trash
+home/*/.local/share/Trash/**
+home/*/.npm/_cacache
+home/*/.npm/_cacache/**
+home/*/.npm/_logs
+home/*/.npm/_logs/**
+home/*/.pnpm-store
+home/*/.pnpm-store/**
+home/*/.local/share/pnpm
+home/*/.local/share/pnpm/**
+home/*/.uv/cache
+home/*/.uv/cache/**
+root/.cache
+root/.cache/**
+
+# Package caches
+var/lib/apt/lists
+var/lib/apt/lists/**
+var/cache/apt
+var/cache/apt/**
+
+# Virtual filesystems
+proc
+proc/**
+sys
+sys/**
+dev
+dev/**
+run
+run/**
+
+# Swap
+swapfile
+swap.img
+
+#===============================================================================
+# BINARIES (reinstallable)
+#===============================================================================
+
+opt/Sonarr
+opt/Sonarr/**
+opt/Radarr
+opt/Radarr/**
+opt/Lidarr
+opt/Lidarr/**
+opt/Prowlarr
+opt/Prowlarr/**
+# bazarr code (reinstallable, NOT data at /opt/bazarr/data/)
+opt/bazarr/bin
+opt/bazarr/bin/**
+opt/bazarr/libs
+opt/bazarr/libs/**
+opt/bazarr/bazarr
+opt/bazarr/bazarr/**
+opt/bazarr/frontend
+opt/bazarr/frontend/**
+opt/Jackett
+opt/Jackett/**
+opt/Ombi
+opt/Ombi/**
+# tautulli code (reinstallable via git clone, NOT config/db)
+opt/tautulli/.git
+opt/tautulli/.git/**
+opt/tautulli/lib
+opt/tautulli/lib/**
+opt/tautulli/plexpy
+opt/tautulli/plexpy/**
+opt/tautulli/data
+opt/tautulli/data/**
+
+# STiXzoOR binaries
+opt/huntarr
+opt/huntarr/**
+opt/subgen
+opt/subgen/**
+opt/byparr
+opt/byparr/**
+opt/flaresolverr
+opt/flaresolverr/**
+opt/seerr
+opt/seerr/**
+opt/overseerr
+opt/overseerr/**
+opt/jellyseerr
+opt/jellyseerr/**
+
+# Python venvs
+opt/.venv
+opt/.venv/**
+home/*/.local/share/virtualenvs
+home/*/.local/share/virtualenvs/**
+home/*/.local/share/uv
+home/*/.local/share/uv/**
+
+#===============================================================================
+# MISC
+#===============================================================================
+
+**/lost+found
+**/lost+found/**
+**/core
+**/*.core
+**/*.crash
+**/*.swp
+**/*.swo
+**/*~
+**/.DS_Store
+**/node_modules
+**/node_modules/**
+**/.pnpm
+**/.pnpm/**
+**/__pycache__
+**/__pycache__/**
+**/*.pyc
+**/*.pyo

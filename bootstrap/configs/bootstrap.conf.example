@@ -1,0 +1,109 @@
+# Bootstrap Configuration Example
+# Copy to bootstrap.conf and customize
+# Part of swizzin-scripts bootstrap
+
+# ==============================================================================
+# SSH Configuration
+# ==============================================================================
+
+# Custom SSH port (default: 22)
+SSH_PORT=22
+
+# SSH public key (paste key directly or path to file)
+# If not set, will prompt during bootstrap
+#SSH_KEY="ssh-ed25519 AAAA... user@host"
+#SSH_KEY="/path/to/id_ed25519.pub"
+
+# ==============================================================================
+# System Updates
+# ==============================================================================
+
+# Auto-reboot time for unattended upgrades (HH:MM format)
+# System will automatically reboot at this time if updates require it
+REBOOT_TIME="04:00"
+
+# ==============================================================================
+# Notifications (Pushover)
+# ==============================================================================
+
+# Pushover credentials from https://pushover.net/
+# If not set, will prompt during bootstrap (or skip if declined)
+#PUSHOVER_USER="your-user-key"
+#PUSHOVER_TOKEN="your-api-token"
+
+# ==============================================================================
+# Discord Notifications (Optional)
+# ==============================================================================
+
+# Discord webhook URL for notifications
+#DISCORD_WEBHOOK="https://discord.com/api/webhooks/..."
+
+# ==============================================================================
+# Real-Debrid / Zurg Configuration
+# ==============================================================================
+
+# Real-Debrid API token from https://real-debrid.com/apitoken
+# Required if installing Zurg
+#RD_TOKEN="your-realdebrid-token"
+
+# Zurg version: "free" or "paid"
+# Paid version requires GitHub token with access to sponsor repo
+ZURG_VERSION="free"
+
+# GitHub Personal Access Token (required for paid Zurg only)
+#GITHUB_TOKEN="ghp_..."
+
+# Zurg mount point
+ZURG_MOUNT_POINT="/mnt/zurg"
+
+# ==============================================================================
+# Notifiarr Configuration
+# ==============================================================================
+
+# Notifiarr API key from https://notifiarr.com/
+# Required if installing Notifiarr
+#DN_API_KEY="your-notifiarr-key"
+
+# ==============================================================================
+# Subdomain Configuration
+# ==============================================================================
+
+# Base domain for subdomain apps
+# Individual apps will use <app>.BASE_DOMAIN
+#BASE_DOMAIN="example.com"
+
+# Individual app domains (optional, will use BASE_DOMAIN if not set)
+#PLEX_DOMAIN="plex.example.com"
+#EMBY_DOMAIN="emby.example.com"
+#JELLYFIN_DOMAIN="jellyfin.example.com"
+#ORGANIZR_DOMAIN="home.example.com"
+#SEERR_DOMAIN="requests.example.com"
+
+# Let's Encrypt mode: "yes" for interactive (CloudFlare DNS), "no" for automatic
+# Set to "yes" if using CloudFlare DNS challenge
+PLEX_LE_INTERACTIVE="no"
+EMBY_LE_INTERACTIVE="no"
+JELLYFIN_LE_INTERACTIVE="no"
+ORGANIZR_LE_INTERACTIVE="no"
+
+# ==============================================================================
+# Multi-Instance Configuration
+# ==============================================================================
+
+# Additional instances for arr apps (comma-separated)
+# Example: "4k,anime,kids"
+#SONARR_INSTANCES="4k,anime"
+#RADARR_INSTANCES="4k,anime"
+#BAZARR_INSTANCES="4k,anime"
+
+# ==============================================================================
+# App Selection (for non-interactive mode)
+# ==============================================================================
+
+# Pre-select apps to install (space-separated)
+# Bundles: core, streaming, arr, debrid, helpers, full
+# Or individual apps: plex emby jellyfin sonarr radarr bazarr prowlarr zurg decypharr huntarr cleanuparr byparr notifiarr subgen organizr
+#SELECTED_APPS="core streaming arr debrid"
+
+# Apps to configure with subdomain (space-separated)
+#SUBDOMAIN_APPS="plex emby organizr"

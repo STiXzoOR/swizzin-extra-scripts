@@ -1,0 +1,559 @@
+#!/bin/bash
+# ==============================================================================
+# NGINX STREAMING & SECURITY HARDENING SCRIPT
+# ==============================================================================
+# Extends existing Swizzin nginx installation with streaming-optimized settings
+# and security hardening:
+# - worker_connections: 768 -> 4096
+# - multi_accept: enabled
+# - SSL session cache: 10m -> 50m
+# - Proxy buffers: 32 4k -> 64 8k
+# - Creates streaming.conf snippet with extended timeouts
+# - TLS hardening: removes TLSv1/TLSv1.1, server_tokens off
+# - Security headers: HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+# - OCSP stapling and cipher suite preference
+#
+# Usage: sudo bash nginx-streaming.sh [--install|--remove|--status]
+#
+# Requires existing Swizzin nginx installation.
+# ==============================================================================
+
+set -euo pipefail
+
+# ==============================================================================
+# Signal Traps
+# ==============================================================================
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap '' PIPE
+
+# ==============================================================================
+# Source Bootstrap Library (if available)
+# ==============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -f "${SCRIPT_DIR}/bootstrap/lib/common.sh" ]]; then
+    # shellcheck source=bootstrap/lib/common.sh
+    . "${SCRIPT_DIR}/bootstrap/lib/common.sh"
+else
+    # Fallback logging functions
+    echo_info() { echo "[INFO] $1"; }
+    echo_success() { echo "[OK] $1"; }
+    echo_warn() { echo "[WARN] $1"; }
+    echo_error() { echo "[ERROR] $1"; }
+    echo_header() {
+        echo ""
+        echo "=== $1 ==="
+        echo ""
+    }
+fi
+
+# shellcheck source=lib/nginx-utils.sh
+. "${SCRIPT_DIR}/lib/nginx-utils.sh" 2>/dev/null || true
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
+LOCK_FILE="/install/.nginx-streaming.lock"
+BACKUP_DIR="/opt/swizzin-extras/nginx-streaming-backups"
+STREAMING_SNIPPET="/etc/nginx/snippets/streaming.conf"
+
+# Default values to revert to
+DEFAULT_WORKER_CONNECTIONS=768
+DEFAULT_SSL_CACHE="10m"
+DEFAULT_PROXY_BUFFERS="32 4k"
+
+# Optimized values
+OPTIMIZED_WORKER_CONNECTIONS=4096
+OPTIMIZED_SSL_CACHE="50m"
+OPTIMIZED_PROXY_BUFFERS="256 16k"
+
+# ==============================================================================
+# Root Check
+# ==============================================================================
+if [[ $EUID -ne 0 ]]; then
+    echo_error "This script must be run as root"
+    echo_info "Try: sudo bash $0"
+    exit 1
+fi
+
+# ==============================================================================
+# Preflight Check
+# ==============================================================================
+preflight_check() {
+    if [[ ! -f /install/.nginx.lock ]]; then
+        echo_error "Nginx not installed via Swizzin. Install nginx first."
+        echo_info "Run: box install nginx"
+        exit 1
+    fi
+
+    if [[ ! -f /etc/nginx/nginx.conf ]]; then
+        echo_error "nginx.conf not found at /etc/nginx/nginx.conf"
+        exit 1
+    fi
+}
+
+# ==============================================================================
+# Backup Functions
+# ==============================================================================
+create_backup() {
+    local file="$1"
+    local timestamp
+    timestamp=$(date +%Y%m%d%H%M%S)
+
+    mkdir -p "$BACKUP_DIR"
+
+    if [[ -f "$file" ]]; then
+        local filename
+        filename=$(basename "$file")
+        cp "$file" "${BACKUP_DIR}/${filename}.${timestamp}.bak"
+        echo_info "Backed up: $file"
+    fi
+}
+
+# ==============================================================================
+# Installation
+# ==============================================================================
+install_streaming_nginx() {
+    preflight_check
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo_warn "Nginx streaming optimizations already installed"
+        echo_info "Run with --status to check current settings"
+        echo_info "Run with --remove to revert, then --install to reinstall"
+        return 0
+    fi
+
+    echo_header "Nginx Streaming Optimization"
+    echo_info "Applying streaming optimizations to nginx..."
+
+    # Create backups
+    create_backup /etc/nginx/nginx.conf
+    create_backup /etc/nginx/snippets/ssl-params.conf
+    create_backup /etc/nginx/snippets/proxy.conf
+
+    # 1. Create streaming snippet with extended timeouts
+    echo_info "Creating streaming configuration snippet..."
+    cat >"$STREAMING_SNIPPET" <<'EOF'
+# ==============================================================================
+# Streaming-optimized nginx settings
+# Generated by swizzin-scripts nginx-streaming.sh
+# ==============================================================================
+
+# Proxy timeouts for long-running streams (1 hour)
+proxy_read_timeout 3600;
+proxy_send_timeout 3600;
+proxy_connect_timeout 60;
+
+# Buffer tuning for high-bitrate streams (4MB per connection for 4K HDR)
+proxy_buffer_size 16k;
+proxy_buffers 256 16k;
+proxy_busy_buffers_size 512k;
+
+# Client body settings for large uploads
+client_body_timeout 3600;
+client_max_body_size 0;
+
+# Send timeout for slow clients
+send_timeout 3600;
+EOF
+    echo_success "Created $STREAMING_SNIPPET"
+
+    # 2a. Set worker_rlimit_nofile (top-level directive, >= 2 * worker_connections)
+    if ! grep -q 'worker_rlimit_nofile' /etc/nginx/nginx.conf; then
+        sed -i '/^worker_processes/a worker_rlimit_nofile 65535;' /etc/nginx/nginx.conf
+        echo_success "Added worker_rlimit_nofile 65535"
+    else
+        echo_info "worker_rlimit_nofile already set"
+    fi
+
+    # 2b. Update worker_connections in nginx.conf
+    if grep -q "worker_connections ${DEFAULT_WORKER_CONNECTIONS}" /etc/nginx/nginx.conf; then
+        sed -i "s/worker_connections ${DEFAULT_WORKER_CONNECTIONS}/worker_connections ${OPTIMIZED_WORKER_CONNECTIONS}/" /etc/nginx/nginx.conf
+        echo_success "Updated worker_connections to ${OPTIMIZED_WORKER_CONNECTIONS}"
+    elif grep -q "worker_connections" /etc/nginx/nginx.conf; then
+        # Already has a value, update it
+        sed -i "s/worker_connections [0-9]*/worker_connections ${OPTIMIZED_WORKER_CONNECTIONS}/" /etc/nginx/nginx.conf
+        echo_success "Updated worker_connections to ${OPTIMIZED_WORKER_CONNECTIONS}"
+    else
+        echo_warn "Could not find worker_connections directive"
+    fi
+
+    # 3. Enable multi_accept
+    if grep -q "# multi_accept on" /etc/nginx/nginx.conf; then
+        sed -i 's/# multi_accept on/multi_accept on/' /etc/nginx/nginx.conf
+        echo_success "Enabled multi_accept"
+    elif grep -q "#.*multi_accept" /etc/nginx/nginx.conf; then
+        sed -i 's/#.*multi_accept.*/multi_accept on;/' /etc/nginx/nginx.conf
+        echo_success "Enabled multi_accept"
+    elif ! grep -q "multi_accept on" /etc/nginx/nginx.conf; then
+        # Add after worker_connections if not present
+        sed -i '/worker_connections/a\    multi_accept on;' /etc/nginx/nginx.conf
+        echo_success "Added multi_accept directive"
+    else
+        echo_info "multi_accept already enabled"
+    fi
+
+    # 4. Update SSL session cache
+    if [[ -f /etc/nginx/snippets/ssl-params.conf ]]; then
+        if grep -q "ssl_session_cache shared:SSL:${DEFAULT_SSL_CACHE}" /etc/nginx/snippets/ssl-params.conf; then
+            sed -i "s/ssl_session_cache shared:SSL:${DEFAULT_SSL_CACHE}/ssl_session_cache shared:SSL:${OPTIMIZED_SSL_CACHE}/" /etc/nginx/snippets/ssl-params.conf
+            echo_success "Updated SSL session cache to ${OPTIMIZED_SSL_CACHE}"
+        elif grep -q "ssl_session_cache" /etc/nginx/snippets/ssl-params.conf; then
+            sed -i "s/ssl_session_cache shared:SSL:[0-9]*m/ssl_session_cache shared:SSL:${OPTIMIZED_SSL_CACHE}/" /etc/nginx/snippets/ssl-params.conf
+            echo_success "Updated SSL session cache to ${OPTIMIZED_SSL_CACHE}"
+        else
+            echo_warn "Could not find ssl_session_cache directive"
+        fi
+    else
+        echo_warn "ssl-params.conf not found, skipping SSL cache update"
+    fi
+
+    # 5. Update proxy buffers
+    if [[ -f /etc/nginx/snippets/proxy.conf ]]; then
+        if grep -q "proxy_buffers ${DEFAULT_PROXY_BUFFERS}" /etc/nginx/snippets/proxy.conf; then
+            sed -i "s/proxy_buffers ${DEFAULT_PROXY_BUFFERS}/proxy_buffers ${OPTIMIZED_PROXY_BUFFERS}/" /etc/nginx/snippets/proxy.conf
+            echo_success "Updated proxy_buffers to ${OPTIMIZED_PROXY_BUFFERS}"
+        elif grep -q "proxy_buffers" /etc/nginx/snippets/proxy.conf; then
+            sed -i "s/proxy_buffers [0-9]* [0-9]*k/proxy_buffers ${OPTIMIZED_PROXY_BUFFERS}/" /etc/nginx/snippets/proxy.conf
+            echo_success "Updated proxy_buffers to ${OPTIMIZED_PROXY_BUFFERS}"
+        else
+            echo_warn "Could not find proxy_buffers directive"
+        fi
+    else
+        echo_warn "proxy.conf not found, skipping proxy buffers update"
+    fi
+
+    # 6. TLS hardening -- remove legacy protocols
+    echo_info "Applying TLS hardening..."
+    if grep -q 'ssl_protocols.*TLSv1[^.]' /etc/nginx/nginx.conf; then
+        sed -i 's/ssl_protocols.*TLSv1[^.]*TLSv1\.1\s*/ssl_protocols /' /etc/nginx/nginx.conf
+        # Clean up in case only TLSv1 was listed (without TLSv1.1)
+        sed -i 's/ssl_protocols\s\+TLSv1\s\+/ssl_protocols /' /etc/nginx/nginx.conf
+        echo_success "Removed TLSv1/TLSv1.1 from ssl_protocols"
+    elif grep -q 'ssl_protocols' /etc/nginx/nginx.conf; then
+        echo_info "ssl_protocols already excludes TLSv1/TLSv1.1"
+    fi
+
+    # 7. server_tokens off
+    if grep -q '#.*server_tokens off' /etc/nginx/nginx.conf; then
+        sed -i 's/#\s*server_tokens off/server_tokens off/' /etc/nginx/nginx.conf
+        echo_success "Enabled server_tokens off"
+    elif ! grep -q 'server_tokens off' /etc/nginx/nginx.conf; then
+        sed -i '/http {/a\    server_tokens off;' /etc/nginx/nginx.conf
+        echo_success "Added server_tokens off"
+    else
+        echo_info "server_tokens already off"
+    fi
+
+    # 8. Security headers + HSTS + OCSP + cipher suite in ssl-params.conf
+    if [[ -f /etc/nginx/snippets/ssl-params.conf ]]; then
+        # HSTS
+        if grep -q '#.*Strict-Transport-Security' /etc/nginx/snippets/ssl-params.conf; then
+            sed -i 's/#.*add_header Strict-Transport-Security.*/add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;/' /etc/nginx/snippets/ssl-params.conf
+            echo_success "Enabled HSTS"
+        elif ! grep -q 'Strict-Transport-Security' /etc/nginx/snippets/ssl-params.conf; then
+            echo 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;' >>/etc/nginx/snippets/ssl-params.conf
+            echo_success "Added HSTS"
+        else
+            echo_info "HSTS already enabled"
+        fi
+
+        # Security headers (safe at server level -- included via snippet, same level as per-vhost CSP)
+        if ! grep -q 'X-Content-Type-Options' /etc/nginx/snippets/ssl-params.conf; then
+            cat >>/etc/nginx/snippets/ssl-params.conf <<'SECHEADERS'
+
+# Security headers (added by nginx-streaming.sh)
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+SECHEADERS
+            echo_success "Added security headers (X-Content-Type-Options, Referrer-Policy, Permissions-Policy)"
+        else
+            echo_info "Security headers already present"
+        fi
+
+        # OCSP Stapling
+        if ! grep -q 'ssl_stapling on' /etc/nginx/snippets/ssl-params.conf; then
+            cat >>/etc/nginx/snippets/ssl-params.conf <<'OCSP'
+
+# OCSP Stapling (added by nginx-streaming.sh)
+ssl_stapling on;
+ssl_stapling_verify on;
+resolver 1.1.1.1 8.8.8.8 valid=300s;
+resolver_timeout 5s;
+OCSP
+            echo_success "Added OCSP stapling"
+        else
+            echo_info "OCSP stapling already configured"
+        fi
+
+        # Cipher suite preference
+        if ! grep -q 'ssl_prefer_server_ciphers' /etc/nginx/snippets/ssl-params.conf; then
+            cat >>/etc/nginx/snippets/ssl-params.conf <<'CIPHERS'
+
+# Cipher suite (added by nginx-streaming.sh)
+ssl_prefer_server_ciphers on;
+ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+CIPHERS
+            echo_success "Added cipher suite preference"
+        else
+            echo_info "Cipher suite already configured"
+        fi
+    fi
+
+    # 9. Test and reload nginx
+    echo_info "Testing nginx configuration..."
+    if _reload_nginx; then
+        echo_success "Nginx configuration valid and reloaded"
+    else
+        echo_error "Nginx configuration test failed!"
+        echo_info "Check nginx error log: journalctl -u nginx"
+        echo_info "Backups are in: $BACKUP_DIR"
+        exit 1
+    fi
+
+    # Create lock file
+    touch "$LOCK_FILE"
+
+    echo ""
+    echo_success "Nginx streaming optimizations applied successfully"
+    echo_info "Run '$0 --status' to verify settings"
+}
+
+# ==============================================================================
+# Removal
+# ==============================================================================
+remove_streaming_nginx() {
+    if [[ ! -f "$LOCK_FILE" ]]; then
+        echo_info "Nginx streaming optimizations not installed"
+        return 0
+    fi
+
+    echo_header "Reverting Nginx Streaming Optimizations"
+
+    # 1. Remove worker_rlimit_nofile
+    if grep -q 'worker_rlimit_nofile' /etc/nginx/nginx.conf; then
+        sed -i '/worker_rlimit_nofile/d' /etc/nginx/nginx.conf
+        echo_success "Removed worker_rlimit_nofile"
+    fi
+
+    # 2. Revert worker_connections
+    if grep -q "worker_connections ${OPTIMIZED_WORKER_CONNECTIONS}" /etc/nginx/nginx.conf; then
+        sed -i "s/worker_connections ${OPTIMIZED_WORKER_CONNECTIONS}/worker_connections ${DEFAULT_WORKER_CONNECTIONS}/" /etc/nginx/nginx.conf
+        echo_success "Reverted worker_connections to ${DEFAULT_WORKER_CONNECTIONS}"
+    fi
+
+    # 2. Disable multi_accept (comment it out)
+    if grep -q "^[[:space:]]*multi_accept on" /etc/nginx/nginx.conf; then
+        sed -i 's/multi_accept on/# multi_accept on/' /etc/nginx/nginx.conf
+        echo_success "Disabled multi_accept"
+    fi
+
+    # 3. Revert SSL session cache
+    if [[ -f /etc/nginx/snippets/ssl-params.conf ]]; then
+        if grep -q "ssl_session_cache shared:SSL:${OPTIMIZED_SSL_CACHE}" /etc/nginx/snippets/ssl-params.conf; then
+            sed -i "s/ssl_session_cache shared:SSL:${OPTIMIZED_SSL_CACHE}/ssl_session_cache shared:SSL:${DEFAULT_SSL_CACHE}/" /etc/nginx/snippets/ssl-params.conf
+            echo_success "Reverted SSL session cache to ${DEFAULT_SSL_CACHE}"
+        fi
+    fi
+
+    # 4. Revert proxy buffers
+    if [[ -f /etc/nginx/snippets/proxy.conf ]]; then
+        if grep -q "proxy_buffers ${OPTIMIZED_PROXY_BUFFERS}" /etc/nginx/snippets/proxy.conf; then
+            sed -i "s/proxy_buffers ${OPTIMIZED_PROXY_BUFFERS}/proxy_buffers ${DEFAULT_PROXY_BUFFERS}/" /etc/nginx/snippets/proxy.conf
+            echo_success "Reverted proxy_buffers to ${DEFAULT_PROXY_BUFFERS}"
+        fi
+    fi
+
+    # 5. Remove streaming snippet
+    if [[ -f "$STREAMING_SNIPPET" ]]; then
+        rm -f "$STREAMING_SNIPPET"
+        echo_success "Removed streaming configuration snippet"
+    fi
+
+    # 6. Revert TLS hardening -- re-enable server_tokens (comment it out)
+    if grep -q '^[[:space:]]*server_tokens off' /etc/nginx/nginx.conf; then
+        sed -i 's/^\([[:space:]]*\)server_tokens off/\1# server_tokens off/' /etc/nginx/nginx.conf
+        echo_success "Reverted server_tokens"
+    fi
+
+    # 7. Revert ssl-params.conf additions (security headers, HSTS, OCSP, ciphers)
+    if [[ -f /etc/nginx/snippets/ssl-params.conf ]]; then
+        # Remove blocks added by this script (identified by comment markers)
+        sed -i '/# Security headers (added by nginx-streaming.sh)/,/Permissions-Policy/d' /etc/nginx/snippets/ssl-params.conf
+        sed -i '/# OCSP Stapling (added by nginx-streaming.sh)/,/resolver_timeout/d' /etc/nginx/snippets/ssl-params.conf
+        sed -i '/# Cipher suite (added by nginx-streaming.sh)/,/ssl_ciphers/d' /etc/nginx/snippets/ssl-params.conf
+        # Revert HSTS (comment it out)
+        if grep -q '^add_header Strict-Transport-Security' /etc/nginx/snippets/ssl-params.conf; then
+            sed -i 's/^add_header Strict-Transport-Security/# add_header Strict-Transport-Security/' /etc/nginx/snippets/ssl-params.conf
+        fi
+        echo_success "Reverted ssl-params.conf additions"
+    fi
+
+    # 8. Remove lock file
+    rm -f "$LOCK_FILE"
+
+    # 9. Test and reload nginx
+    echo_info "Testing nginx configuration..."
+    if _reload_nginx; then
+        echo_success "Nginx configuration valid and reloaded"
+    else
+        echo_error "Nginx configuration test failed!"
+        echo_info "You may need to manually restore from backups in: $BACKUP_DIR"
+        exit 1
+    fi
+
+    echo ""
+    echo_success "Nginx streaming optimizations removed"
+}
+
+# ==============================================================================
+# Status
+# ==============================================================================
+show_status() {
+    echo_header "Nginx Streaming Status"
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo "Status: ENABLED"
+    else
+        echo "Status: NOT ENABLED"
+    fi
+
+    echo ""
+    echo "Current Settings:"
+
+    # worker_connections
+    local wc
+    wc=$(grep -oP 'worker_connections \K\d+' /etc/nginx/nginx.conf 2>/dev/null || echo "unknown")
+    local wc_status="default"
+    [[ "$wc" == "$OPTIMIZED_WORKER_CONNECTIONS" ]] && wc_status="optimized"
+    echo "  worker_connections: $wc ($wc_status)"
+
+    # multi_accept
+    local ma="off"
+    grep -q '^[[:space:]]*multi_accept on' /etc/nginx/nginx.conf && ma="on"
+    local ma_status="default"
+    [[ "$ma" == "on" ]] && ma_status="optimized"
+    echo "  multi_accept: $ma ($ma_status)"
+
+    # ssl_session_cache
+    local ssc
+    ssc=$(grep -oP 'ssl_session_cache shared:SSL:\K\d+m' /etc/nginx/snippets/ssl-params.conf 2>/dev/null || echo "unknown")
+    local ssc_status="default"
+    [[ "$ssc" == "$OPTIMIZED_SSL_CACHE" ]] && ssc_status="optimized"
+    echo "  ssl_session_cache: $ssc ($ssc_status)"
+
+    # proxy_buffers
+    local pb
+    pb=$(grep -oP 'proxy_buffers \K[\d\s\w]+' /etc/nginx/snippets/proxy.conf 2>/dev/null | head -1 || echo "unknown")
+    local pb_status="default"
+    [[ "$pb" == "$OPTIMIZED_PROXY_BUFFERS" ]] && pb_status="optimized"
+    echo "  proxy_buffers: $pb ($pb_status)"
+
+    # streaming snippet
+    if [[ -f "$STREAMING_SNIPPET" ]]; then
+        echo "  streaming.conf: present"
+    else
+        echo "  streaming.conf: not present"
+    fi
+
+    echo ""
+    echo "Security Hardening:"
+
+    # server_tokens
+    if grep -q '^[[:space:]]*server_tokens off' /etc/nginx/nginx.conf 2>/dev/null; then
+        echo "  server_tokens: off (hardened)"
+    else
+        echo "  server_tokens: on (default)"
+    fi
+
+    # HSTS
+    if grep -q '^add_header Strict-Transport-Security' /etc/nginx/snippets/ssl-params.conf 2>/dev/null; then
+        echo "  HSTS: enabled"
+    else
+        echo "  HSTS: disabled"
+    fi
+
+    # Security headers
+    if grep -q 'X-Content-Type-Options' /etc/nginx/snippets/ssl-params.conf 2>/dev/null; then
+        echo "  Security headers: present"
+    else
+        echo "  Security headers: not present"
+    fi
+
+    # OCSP
+    if grep -q 'ssl_stapling on' /etc/nginx/snippets/ssl-params.conf 2>/dev/null; then
+        echo "  OCSP stapling: enabled"
+    else
+        echo "  OCSP stapling: disabled"
+    fi
+
+    echo ""
+    echo "Backups: $BACKUP_DIR"
+
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local count
+        count=$(find "$BACKUP_DIR" -name "*.bak" 2>/dev/null | wc -l)
+        echo "  Backup files: $count"
+    fi
+}
+
+# ==============================================================================
+# Help
+# ==============================================================================
+show_help() {
+    echo "Usage: $0 [--install|--remove|--status|--help]"
+    echo ""
+    echo "Nginx Streaming Optimization Script"
+    echo "Extends existing Swizzin nginx installation with streaming-optimized settings."
+    echo ""
+    echo "Options:"
+    echo "  --install, -i    Apply streaming optimizations"
+    echo "  --remove, -r     Revert to default settings"
+    echo "  --status, -s     Show current status"
+    echo "  --help, -h       Show this help message"
+    echo ""
+    echo "Optimizations applied:"
+    echo "  - worker_connections: 768 -> 4096"
+    echo "  - multi_accept: enabled"
+    echo "  - SSL session cache: 10m -> 50m"
+    echo "  - Proxy buffers: 32 4k -> 64 8k"
+    echo "  - Extended proxy timeouts (1 hour)"
+    echo ""
+    echo "Security hardening:"
+    echo "  - TLS: removes TLSv1/TLSv1.1, server_tokens off"
+    echo "  - HSTS with preload"
+    echo "  - Security headers (X-Content-Type-Options, Referrer-Policy, Permissions-Policy)"
+    echo "  - OCSP stapling with Cloudflare+Google resolvers"
+    echo "  - Cipher suite preference (ECDHE-ECDSA/RSA with AES-GCM)"
+    echo ""
+    echo "Requires existing Swizzin nginx installation."
+}
+
+# ==============================================================================
+# Main
+# ==============================================================================
+case "${1:-}" in
+    --install | -i)
+        install_streaming_nginx
+        ;;
+    --remove | -r)
+        remove_streaming_nginx
+        ;;
+    --status | -s)
+        show_status
+        ;;
+    --help | -h)
+        show_help
+        ;;
+    *)
+        echo "Usage: $0 [--install|--remove|--status]"
+        echo ""
+        echo "Applies streaming-optimized nginx configuration."
+        echo "Requires existing Swizzin nginx installation."
+        echo ""
+        echo "Run '$0 --help' for more information."
+        exit 1
+        ;;
+esac

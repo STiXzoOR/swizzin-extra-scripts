@@ -1,0 +1,45 @@
+# /opt/swizzin/watchdog.d/emby.conf - Emby watchdog configuration
+
+# ==============================================================================
+# Service Identification
+# ==============================================================================
+
+# systemd service name
+SERVICE_NAME="emby-server"
+
+# Display name for notifications
+APP_NAME="Emby"
+
+# ==============================================================================
+# Health Check
+# ==============================================================================
+
+# HTTP endpoint to check for health
+# This endpoint returns server info and doesn't require authentication
+HEALTH_URL="http://127.0.0.1:8096/emby/System/Info/Public"
+
+# Timeout for HTTP health check in seconds (optional, uses global default)
+# HEALTH_TIMEOUT=10
+
+# String that must appear in the HTTP response (optional)
+# If set, the response body must contain this string to be considered healthy
+HEALTH_EXPECT="ServerName"
+
+# ==============================================================================
+# Cooldown Overrides (optional)
+# ==============================================================================
+# Uncomment to override global defaults
+
+# Maximum restart attempts within the cooldown window
+# MAX_RESTARTS=3
+
+# Cooldown window in seconds
+# COOLDOWN_WINDOW=900
+
+# ==============================================================================
+# File Paths (optional)
+# ==============================================================================
+# Uncomment to override auto-generated paths
+
+# LOG_FILE="/var/log/watchdog/emby.log"
+# STATE_FILE="/var/lib/watchdog/emby.state"

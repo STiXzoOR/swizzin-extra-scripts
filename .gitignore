@@ -1,0 +1,25 @@
+# Local scripts (not for distribution)
+local/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Bootstrap config (contains secrets)
+bootstrap/configs/bootstrap.conf
+
+# Git worktrees
+.worktrees/

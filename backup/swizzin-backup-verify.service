@@ -1,0 +1,10 @@
+[Unit]
+Description=Borg backup data verification
+After=network-online.target swizzin-backup.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/swizzin-backup.sh --verify
+Nice=19
+IOSchedulingClass=idle

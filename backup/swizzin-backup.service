@@ -1,0 +1,26 @@
+[Unit]
+Description=Swizzin Backup (BorgBackup to remote repository)
+Documentation=https://borgbackup.readthedocs.io/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/swizzin-backup.sh
+
+# Lower priority to avoid impacting streaming
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# Allow up to 6 hours for initial backup
+TimeoutStartSec=21600
+
+# Security
+ProtectSystem=strict
+ReadWritePaths=/var/log /var/run /root /mnt/symlinks /etc /tmp
+
+# Logging
+SyslogIdentifier=swizzin-backup
+
+Environment="HOME=/root"

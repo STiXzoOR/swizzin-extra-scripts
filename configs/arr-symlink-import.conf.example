@@ -1,0 +1,39 @@
+# /opt/swizzin-extras/arr-symlink-import.conf
+# Configuration for the Arr Symlink Import script
+#
+# This file is sourced by arr-symlink-import.sh
+# Deploy to: /opt/swizzin-extras/arr-symlink-import.conf
+
+# ==============================================================================
+# Zurg Mount Path
+# ==============================================================================
+# Override the auto-detected zurg mount base path.
+# Auto-detection order: swizdb > Decypharr config > /mnt/zurg default
+# Uncomment to override:
+
+# ARR_ZURG_BASE="/mnt/zurg"
+
+# ==============================================================================
+# Logging
+# ==============================================================================
+
+# Log file path
+# ARR_IMPORT_LOG="/var/log/arr-symlink-import.log"
+
+# Maximum log file size in bytes before rotation (default: 10MB)
+# ARR_IMPORT_LOG_MAX_SIZE=10485760
+
+# ==============================================================================
+# Mount Health Check
+# ==============================================================================
+# Before creating symlinks, the script verifies the zurg FUSE mount is healthy.
+# These settings control the retry behavior when the mount is unresponsive.
+
+# Number of retry attempts before giving up (default: 5)
+# MOUNT_CHECK_RETRIES=5
+
+# Delay in seconds between retry attempts (default: 3)
+# MOUNT_CHECK_DELAY=3
+
+# Timeout in seconds for each mount responsiveness check (default: 5)
+# MOUNT_CHECK_TIMEOUT=5

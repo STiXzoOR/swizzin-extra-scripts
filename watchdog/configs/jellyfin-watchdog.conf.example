@@ -1,0 +1,45 @@
+# /opt/swizzin/watchdog.d/jellyfin.conf - Jellyfin watchdog configuration
+
+# ==============================================================================
+# Service Identification
+# ==============================================================================
+
+# systemd service name
+SERVICE_NAME="jellyfin"
+
+# Display name for notifications
+APP_NAME="Jellyfin"
+
+# ==============================================================================
+# Health Check
+# ==============================================================================
+
+# HTTP endpoint to check for health
+# Jellyfin /health returns "Healthy" (no auth required)
+HEALTH_URL="http://127.0.0.1:8096/health"
+
+# Timeout for HTTP health check in seconds (optional, uses global default)
+# HEALTH_TIMEOUT=10
+
+# String that must appear in the HTTP response (optional)
+# Jellyfin /health returns the string "Healthy"
+HEALTH_EXPECT="Healthy"
+
+# ==============================================================================
+# Cooldown Overrides (optional)
+# ==============================================================================
+# Uncomment to override global defaults
+
+# Maximum restart attempts within the cooldown window
+# MAX_RESTARTS=3
+
+# Cooldown window in seconds
+# COOLDOWN_WINDOW=900
+
+# ==============================================================================
+# File Paths (optional)
+# ==============================================================================
+# Uncomment to override auto-generated paths
+
+# LOG_FILE="/var/log/watchdog/jellyfin.log"
+# STATE_FILE="/var/lib/watchdog/jellyfin.state"

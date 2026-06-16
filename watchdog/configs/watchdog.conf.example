@@ -1,0 +1,34 @@
+# /opt/swizzin/watchdog.conf - Global watchdog configuration
+# This file contains shared settings for all monitored services
+
+# ==============================================================================
+# Notifications
+# ==============================================================================
+# Leave empty to disable a notification method
+
+# Discord webhook URL (create via Server Settings > Integrations > Webhooks)
+DISCORD_WEBHOOK=""
+
+# Pushover (https://pushover.net)
+PUSHOVER_USER=""
+PUSHOVER_TOKEN=""
+
+# Notifiarr (https://notifiarr.com)
+NOTIFIARR_API_KEY=""
+
+# Email (requires sendmail or mail command configured)
+EMAIL_TO=""
+
+# ==============================================================================
+# Default Cooldown Settings
+# ==============================================================================
+# These can be overridden in per-service configs
+
+# Maximum restart attempts within the cooldown window
+DEFAULT_MAX_RESTARTS=3
+
+# Cooldown window in seconds (default: 900 = 15 minutes)
+DEFAULT_COOLDOWN_WINDOW=900
+
+# HTTP health check timeout in seconds
+DEFAULT_HEALTH_TIMEOUT=10

@@ -1,0 +1,1576 @@
+#!/usr/bin/env python3
+"""
+Swizzin App Info Extractor
+
+Discovers all installed Swizzin apps and extracts configuration details:
+- Full URL (protocol://localhost:port/baseurl)
+- API Key (full, not truncated)
+- Config file paths (with --verbose)
+
+Installation:
+    sudo swizzin-app-info --install    # Install to /usr/local/bin/
+    sudo swizzin-app-info --uninstall  # Remove from /usr/local/bin/
+
+Usage:
+    swizzin-app-info                   # List all apps
+    swizzin-app-info --json            # Output as JSON
+    swizzin-app-info --app sonarr      # Show specific app
+    swizzin-app-info --verbose         # Show config file paths
+
+Example output:
+    App           URL                              API Key
+    --------------------------------------------------------------------------------
+    radarr        http://localhost:7878/radarr     a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+    sonarr        http://localhost:8989/sonarr     z9y8x7w6v5u4t3s2r1q0p9o8n7m6l5k4
+    sonarr-4k     http://localhost:10001/sonarr-4k abc123def456ghi789jkl012mno345pq
+    plex          http://localhost:32400           xYz-AbC-123-PlexToken
+"""
+
+import argparse
+import filecmp
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# =============================================================================
+# Installation
+# =============================================================================
+
+INSTALL_PATH = "/usr/local/bin/swizzin-app-info"
+REPO_SOURCE = "/opt/swizzin-scripts/swizzin-app-info"
+
+
+def check_for_update() -> None:
+    """Auto-update from repo source if the installed copy is outdated."""
+    # Only check when running from the installed location
+    if os.path.realpath(__file__) != INSTALL_PATH:
+        return
+    if not os.path.isfile(REPO_SOURCE):
+        return
+    if filecmp.cmp(INSTALL_PATH, REPO_SOURCE, shallow=False):
+        return  # Already up to date
+
+    if os.geteuid() == 0:
+        try:
+            shutil.copy2(REPO_SOURCE, INSTALL_PATH)
+            os.chmod(INSTALL_PATH, 0o755)
+            print(
+                "Updated swizzin-app-info from repo. "
+                "Changes take effect on next run.",
+                file=sys.stderr,
+            )
+        except OSError as e:
+            print(f"Warning: auto-update failed: {e}", file=sys.stderr)
+    else:
+        print(
+            "Notice: a newer version is available. "
+            "Run 'sudo swizzin-app-info --install' to update.",
+            file=sys.stderr,
+        )
+
+
+def install_self() -> None:
+    """Install this script to /usr/local/bin/."""
+    script_path = os.path.realpath(__file__)
+
+    if os.geteuid() != 0:
+        print("Error: Installation requires root privileges. Run with sudo.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        shutil.copy2(script_path, INSTALL_PATH)
+        os.chmod(INSTALL_PATH, 0o755)
+        print(f"Installed to {INSTALL_PATH}")
+        print("You can now run 'swizzin-app-info' from anywhere.")
+    except Exception as e:
+        print(f"Error: Failed to install: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def uninstall_self() -> None:
+    """Remove this script from /usr/local/bin/."""
+    if os.geteuid() != 0:
+        print("Error: Uninstallation requires root privileges. Run with sudo.", file=sys.stderr)
+        sys.exit(1)
+
+    if not os.path.exists(INSTALL_PATH):
+        print(f"Not installed at {INSTALL_PATH}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        os.remove(INSTALL_PATH)
+        print(f"Removed {INSTALL_PATH}")
+    except Exception as e:
+        print(f"Error: Failed to uninstall: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# =============================================================================
+# Configuration - App definitions
+# =============================================================================
+
+# Lock file directory
+LOCK_DIR = "/install"
+
+# App configuration mappings
+# Format: app_name -> {config_paths: [...], format: "xml|json|yaml|toml|ini", keys: {...}}
+APP_CONFIGS = {
+    # *arr apps (XML config)
+    "sonarr": {
+        "config_paths": ["/home/{user}/.config/Sonarr/config.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+            "bindaddress": "BindAddress",
+            "sslport": "SslPort",
+            "enablessl": "EnableSsl",
+        },
+    },
+    "radarr": {
+        "config_paths": ["/home/{user}/.config/Radarr/config.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+            "bindaddress": "BindAddress",
+            "sslport": "SslPort",
+            "enablessl": "EnableSsl",
+        },
+    },
+    "lidarr": {
+        "config_paths": ["/home/{user}/.config/Lidarr/config.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+            "bindaddress": "BindAddress",
+        },
+    },
+    "readarr": {
+        "config_paths": ["/home/{user}/.config/Readarr/config.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+            "bindaddress": "BindAddress",
+        },
+    },
+    "prowlarr": {
+        "config_paths": ["/home/{user}/.config/Prowlarr/config.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+            "bindaddress": "BindAddress",
+        },
+    },
+    "autopulse": {
+        "config_paths": ["/opt/autopulse/config.yaml"],
+        "format": "yaml",
+        "keys": {
+            "port": "app.port",
+            "apikey": "auth.password",
+        },
+    },
+    "bazarr": {
+        "config_paths": [
+            "/opt/bazarr/data/config/config.yaml",
+            "/home/{user}/.config/bazarr/config/config.yaml",
+            "/opt/bazarr/data/config/config.ini",  # Fallback for older versions
+            "/home/{user}/.config/bazarr/config/config.ini",
+        ],
+        "format": "bazarr",  # Custom parser that handles both YAML and INI
+        "keys": {
+            "port": ["general", "port"],
+            "baseurl": ["general", "base_url"],
+            "apikey": ["auth", "apikey"],
+            "bindaddress": ["general", "ip"],
+        },
+    },
+    # Media servers
+    "plex": {
+        "config_paths": [
+            "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Preferences.xml",
+        ],
+        "format": "plex_xml",
+        "keys": {
+            "port": "ManualPortMappingPort",
+            "token": "PlexOnlineToken",
+            "machineid": "ProcessedMachineIdentifier",
+        },
+    },
+    "emby": {
+        "config_paths": ["/var/lib/emby/config/system.xml"],
+        "format": "xml",
+        "keys": {
+            "port": "HttpServerPortNumber",
+            "sslport": "HttpsPortNumber",
+            "apikey": "ApiKey",
+            "baseurl": "BaseUrl",
+        },
+    },
+    "jellyfin": {
+        "config_paths": [
+            "/var/lib/jellyfin/config/network.xml",
+            "/etc/jellyfin/network.xml",
+        ],
+        "format": "xml",
+        "keys": {
+            "port": "InternalHttpPort",  # or HttpServerPortNumber for older versions
+            "sslport": "InternalHttpsPort",  # or HttpsPortNumber for older versions
+            "baseurl": "BaseUrl",
+        },
+    },
+    # Notification/utility apps
+    "notifiarr": {
+        "config_paths": ["/home/{user}/.config/notifiarr/notifiarr.conf"],
+        "format": "notifiarr",  # Custom parser for bind_addr extraction
+        "keys": {
+            "apikey": ["notifiarr", "api_key"],
+            "port": ["notifiarr", "bind_addr"],  # Extracted from "0.0.0.0:5454" format
+        },
+    },
+    "tautulli": {
+        "config_paths": ["/opt/tautulli/config.ini"],
+        "format": "ini",
+        "keys": {
+            "port": ["General", "http_port"],
+            "baseurl": ["General", "http_root"],
+            "apikey": ["General", "api_key"],
+        },
+    },
+    "overseerr": {
+        "config_paths": ["/opt/overseerr/config/settings.json"],
+        "format": "json",
+        "keys": {
+            "port": "port",
+            "apikey": "main.apiKey",
+        },
+    },
+    "seerr": {
+        "config_paths": [
+            "/opt/seerr/config/settings.json",
+            "/opt/overseerr/config/settings.json",
+        ],
+        "format": "json",
+        "keys": {
+            "port": "port",
+            "apikey": "main.apiKey",
+        },
+    },
+    "ombi": {
+        "config_paths": ["/opt/Ombi/appsettings.json", "/opt/ombi/appsettings.json"],
+        "format": "json",
+        "keys": {
+            "port": "ApplicationUrl",  # Parse from URL
+            "baseurl": "BaseUrl",
+        },
+    },
+    # Download clients
+    "qbittorrent": {
+        "config_paths": ["/home/{user}/.config/qBittorrent/qBittorrent.conf"],
+        "format": "ini",
+        "keys": {
+            "port": ["Preferences", "WebUI\\Port"],
+            "baseurl": ["Preferences", "WebUI\\RootFolder"],
+        },
+    },
+    "deluge": {
+        "config_paths": ["/home/{user}/.config/deluge/web.conf"],
+        "format": "json_python",
+        "keys": {
+            "port": "port",
+            "baseurl": "base",
+        },
+    },
+    "transmission": {
+        "config_paths": ["/home/{user}/.config/transmission-daemon/settings.json"],
+        "format": "json",
+        "keys": {
+            "port": "rpc-port",
+            "bindaddress": "rpc-bind-address",
+        },
+    },
+    "rtorrent": {
+        "config_paths": ["/home/{user}/.rtorrent.rc"],
+        "format": "rtorrent",
+        "keys": {
+            "port": "network.scgi.open_port",
+        },
+    },
+    # Misc apps
+    "jackett": {
+        "config_paths": ["/home/{user}/.config/Jackett/ServerConfig.json"],
+        "format": "json",
+        "keys": {
+            "port": "Port",
+            "baseurl": "BasePathOverride",
+            "apikey": "APIKey",
+        },
+    },
+    "nzbget": {
+        "config_paths": ["/home/{user}/.nzbget", "/opt/nzbget/nzbget.conf"],
+        "format": "nzbget",
+        "keys": {
+            "port": "ControlPort",
+            "apikey": "ControlPassword",  # NZBGet uses username:password
+        },
+    },
+    "sabnzbd": {
+        "config_paths": ["/home/{user}/.sabnzbd/sabnzbd.ini"],
+        "format": "ini",
+        "keys": {
+            "port": ["misc", "port"],
+            "apikey": ["misc", "api_key"],
+            "baseurl": ["misc", "url_base"],
+        },
+    },
+    # Custom apps from this repo
+    "cleanuparr": {
+        "config_paths": ["/home/{user}/.config/cleanuparr/config.yaml"],
+        "format": "yaml",
+        "keys": {
+            "port": "port",
+        },
+    },
+    "decypharr": {
+        # Decypharr stores port/url_base in config.json but the API token
+        # lives in a sibling auth.json (generated when use_auth=true).
+        # The "decypharr" parser reads port/url_base from config.json and
+        # apikey from ./auth.json in the same directory.
+        "config_paths": ["/home/{user}/.config/Decypharr/config.json"],
+        "format": "decypharr",
+        "keys": {
+            "port": "port",
+            "url_base": "url_base",
+            "apikey": "api_token",
+        },
+    },
+    "huntarr": {
+        "config_paths": ["/home/{user}/.config/huntarr/settings.yaml"],
+        "format": "yaml",
+        "keys": {
+            "port": "port",
+        },
+    },
+    "newtarr": {
+        "config_paths": ["/home/{user}/.config/Newtarr/general.json"],
+        "format": "json",
+        "keys": {},
+    },
+    "checkrr": {
+        "config_paths": ["/opt/checkrr/config/checkrr.yaml"],
+        "format": "yaml",
+        "keys": {
+            "port": "webserver.port",
+        },
+    },
+    "tracearr": {
+        "config_paths": [],
+        "format": "docker_compose",
+        "keys": {},
+    },
+    "swaparr": {
+        "config_paths": ["/opt/swaparr/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {},
+    },
+    "posterizarr": {
+        "config_paths": ["/opt/posterizarr/config/config.json"],
+        "format": "json",
+        "keys": {},
+    },
+    "zurg": {
+        "config_paths": ["/home/{user}/.config/zurg/config.yml"],
+        "format": "yaml",
+        "keys": {
+            "port": "port",
+            "token": "token",
+        },
+    },
+    "organizr": {
+        "config_paths": ["/opt/organizr/api/config/config.php"],
+        "format": "php",
+        "keys": {
+            "apikey": "organizrAPI",
+        },
+        # Organizr uses nginx, port detected via nginx fallback
+    },
+    "filebrowser": {
+        "config_paths": [
+            "/home/{user}/.config/filebrowser/filebrowser.json",
+            "/opt/filebrowser/.filebrowser.json",
+        ],
+        "format": "json",
+        "keys": {
+            "port": "port",
+            "baseurl": "baseURL",
+        },
+    },
+    "librespeed": {
+        "config_paths": [],  # Uses nginx
+        "format": "env",
+        "keys": {},
+        # Port detected via nginx fallback
+    },
+    "panel": {
+        "config_paths": [],  # Swizzin panel - port from systemd/nginx
+        "format": "env",
+        "keys": {},
+        "default_port": 8333,
+    },
+    "subgen": {
+        "config_paths": [
+            "/home/{user}/.config/Subgen/env.conf",
+            "/opt/subgen/subgen.env",
+        ],
+        "format": "dotenv",
+        "keys": {
+            "port": "WEBHOOK_PORT",
+        },
+    },
+    "flaresolverr": {
+        "config_paths": [],  # Environment-based
+        "format": "env",
+        "keys": {
+            "port": "PORT",  # Default 8191
+        },
+        "default_port": 8191,
+    },
+    "byparr": {
+        "config_paths": [],  # Environment-based
+        "format": "env",
+        "keys": {
+            "port": "PORT",  # Default 8191
+        },
+        "default_port": 8191,
+    },
+    "lingarr": {
+        "config_paths": ["/opt/lingarr/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "ASPNETCORE_URLS",
+        },
+        "default_port": 9876,
+    },
+    "libretranslate": {
+        "config_paths": ["/opt/libretranslate/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "LT_PORT",
+        },
+    },
+    "mdblistarr": {
+        "config_paths": ["/opt/mdblistarr/docker-compose.yml"],
+        "format": "mdblistarr",
+        "keys": {
+            "port": "PORT",
+        },
+    },
+    "zilean": {
+        "config_paths": ["/opt/zilean/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "PORT",
+            "image": "ipromknight/zilean:latest",
+        },
+        "default_port": 8181,
+    },
+    "stremthru": {
+        "config_paths": ["/opt/stremthru/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "PORT",
+            "image": "muniftanjim/stremthru:latest",
+        },
+    },
+    "aiostreams": {
+        "config_paths": ["/opt/aiostreams/.env"],
+        "format": "dotenv",
+        "keys": {
+            "addon_id": "ADDON_ID",
+            "addon_password": "ADDON_PASSWORD",
+            "baseurl": "BASE_URL",
+            "secret_key": "SECRET_KEY",
+        },
+        # No default_port — PORT in .env is the container-internal port (3000)
+        # and isn't host-reachable. Real port lives in swizdb at aiostreams/port
+        # and is set by the installer.
+    },
+    "mediafusion": {
+        "config_paths": ["/opt/mediafusion/docker-compose.yml"],
+        "format": "mediafusion",
+        "keys": {
+            "api_password": "API_PASSWORD",
+            "image": "mhdzumair/mediafusion:latest",
+        },
+    },
+    "nzbdav": {
+        "config_paths": ["/opt/nzbdav/docker-compose.yml", "/opt/nzbdav/config/"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "PORT",
+            "image": "nzbdav/nzbdav:latest",
+        },
+    },
+    # Key must match the lock-file name (/install/.easynewsindexer.lock — no
+    # hyphens per Swizzin convention). The on-disk dir + container name keep
+    # the hyphenated "easynews-indexer" form for readability.
+    "easynewsindexer": {
+        "config_paths": [
+            "/opt/easynews-indexer/docker-compose.yml",
+            "/opt/easynews-indexer/.env",
+        ],
+        "format": "docker_compose",
+        "keys": {
+            "port": "PORT",
+            "apikey": "NEWZNAB_APIKEY",
+            "image": "ghcr.io/sanket9225/easynews_as_indexer:latest",
+        },
+        "default_port": 8081,
+    },
+    "litterbox": {
+        "config_paths": ["/opt/litterbox/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "image": "ghcr.io/elfhosted/litterbox",
+        },
+    },
+    "babysitarr": {
+        # Web dashboard port lives in docker-compose.yml (WEB_PORT). Real
+        # host-facing port is persisted in swizdb at babysitarr/port and exposed
+        # via the "127.0.0.1:<port>:8284" mapping in the compose file.
+        "config_paths": ["/opt/babysitarr/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "port": "WEB_PORT",
+        },
+        "default_port": 8284,
+    },
+    "nzbhydra2": {
+        "config_paths": ["/opt/nzbhydra2/config/nzbhydra.yml"],
+        "format": "yaml",
+        "keys": {
+            "baseurl": "main.urlBase",
+            "apikey": "main.apiKey",
+        },
+        # No default_port — main.port in yml is the container-internal port (5076)
+        # and isn't reachable from the host. Real port lives in swizdb at
+        # nzbhydra2/port and is set by the installer.
+    },
+    "netdata": {
+        "config_paths": ["/etc/netdata/netdata.conf"],
+        "format": "ini",
+        "keys": {
+            # Netdata's INI uses indented keys under sections. The `ini` parser
+            # returns the raw string; we record the default 19999 so lookup
+            # succeeds even when the key isn't present in the config file.
+            "port": ["web", "default port"],
+            "bindaddress": ["web", "bind to"],
+        },
+    },
+    "adguardhome": {
+        "config_paths": ["/opt/AdGuardHome/AdGuardHome.yaml"],
+        "format": "yaml",
+        "keys": {
+            # http.address is "127.0.0.1:3000" — parser returns the full string.
+            "port": "http.address",
+            "dns_port": "dns.port",
+        },
+    },
+}
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def get_swizzin_users() -> List[str]:
+    """Get list of Swizzin users."""
+    users = []
+    htpasswd_path = "/etc/htpasswd"
+    if os.path.exists(htpasswd_path):
+        with open(htpasswd_path, "r") as f:
+            for line in f:
+                if ":" in line:
+                    users.append(line.split(":")[0])
+    # Fallback: check home directories
+    if not users:
+        for entry in os.listdir("/home"):
+            if os.path.isdir(f"/home/{entry}") and not entry.startswith("."):
+                users.append(entry)
+    return users
+
+
+def get_master_user() -> Optional[str]:
+    """Get master Swizzin user."""
+    users = get_swizzin_users()
+    return users[0] if users else None
+
+
+def expand_config_paths(paths: List[str], users: List[str]) -> List[str]:
+    """Expand {user} placeholder in config paths."""
+    expanded = []
+    for path in paths:
+        if "{user}" in path:
+            for user in users:
+                expanded.append(path.format(user=user))
+        else:
+            expanded.append(path)
+    return expanded
+
+
+def find_config_file(paths: List[str]) -> Optional[str]:
+    """Find first existing config file from list of paths."""
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def parse_xml_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse XML config file (*arr apps, Emby, etc.)."""
+    result = {}
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        for result_key, xml_key in keys.items():
+            elem = root.find(xml_key)
+            if elem is not None and elem.text:
+                result[result_key] = elem.text
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_plex_xml(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse Plex Preferences.xml (attributes, not elements)."""
+    result = {}
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        for result_key, attr_key in keys.items():
+            value = root.get(attr_key)
+            if value:
+                result[result_key] = value
+        # Plex default port
+        if "port" not in result:
+            result["port"] = "32400"
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_json_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse JSON config file."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        for result_key, json_key in keys.items():
+            if "." in json_key:
+                # Nested key like "main.apiKey"
+                parts = json_key.split(".")
+                value = data
+                for part in parts:
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        value = None
+                        break
+                if value:
+                    result[result_key] = value
+            elif json_key in data:
+                result[result_key] = data[json_key]
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_decypharr_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse Decypharr config — port/url_base in config.json, apikey in
+    sibling auth.json. Handles the v2+ layout where the API token is split
+    into a separate file generated on first-run with use_auth=true."""
+    result = {}
+    auth_path = os.path.join(os.path.dirname(path), "auth.json")
+
+    def _lookup(data: Any, dotted: str) -> Any:
+        value = data
+        for part in dotted.split("."):
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:
+                return None
+        return value
+
+    try:
+        with open(path, "r") as f:
+            cfg = json.load(f)
+    except Exception as e:
+        result["_error"] = f"config.json: {e}"
+        cfg = {}
+
+    auth: Dict[str, Any] = {}
+    if os.path.isfile(auth_path):
+        try:
+            with open(auth_path, "r") as f:
+                auth = json.load(f)
+        except Exception as e:
+            result["_error"] = f"{result.get('_error', '')}; auth.json: {e}".strip("; ")
+
+    for result_key, json_key in keys.items():
+        # Route apikey/api_token lookups to auth.json, others to config.json
+        source = auth if result_key == "apikey" or json_key == "api_token" else cfg
+        value = _lookup(source, json_key)
+        if value:
+            result[result_key] = value
+    return result
+
+
+def parse_json_python_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse Python-style JSON (with trailing commas, etc.)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+        # Remove Python-style comments and trailing commas
+        content = re.sub(r"#.*$", "", content, flags=re.MULTILINE)
+        content = re.sub(r",(\s*[}\]])", r"\1", content)
+        data = json.loads(content)
+        for result_key, json_key in keys.items():
+            if json_key in data:
+                result[result_key] = data[json_key]
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_yaml_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse YAML config file (basic parser, no pyyaml dependency)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+
+        # Basic YAML parsing for simple key: value pairs
+        lines = content.split("\n")
+        data = {}
+        current_section = None
+        indent_level = 0
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            # Calculate indent
+            indent = len(line) - len(line.lstrip())
+
+            if ":" in stripped:
+                key, _, value = stripped.partition(":")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                if indent == 0:
+                    if value:
+                        data[key] = value
+                    else:
+                        current_section = key
+                        data[key] = {}
+                        indent_level = indent
+                elif current_section and indent > indent_level:
+                    if isinstance(data.get(current_section), dict):
+                        data[current_section][key] = value
+
+        # Extract requested keys
+        for result_key, yaml_keys in keys.items():
+            if isinstance(yaml_keys, list):
+                # Nested key like ["general", "port"]
+                value = data
+                for k in yaml_keys:
+                    if isinstance(value, dict):
+                        value = value.get(k)
+                    else:
+                        value = None
+                        break
+                if value:
+                    result[result_key] = value
+            elif yaml_keys in data:
+                result[result_key] = data[yaml_keys]
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_ini_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse INI config file."""
+    result = {}
+    try:
+        import configparser
+
+        config = configparser.ConfigParser()
+        config.read(path)
+
+        for result_key, ini_keys in keys.items():
+            if isinstance(ini_keys, list) and len(ini_keys) == 2:
+                section, key = ini_keys
+                try:
+                    result[result_key] = config.get(section, key)
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_bazarr_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse Bazarr config - handles both YAML and INI formats."""
+    result = {}
+
+    # Detect format by extension
+    if path.endswith(".yaml") or path.endswith(".yml"):
+        # Parse YAML format
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+
+            # Simple YAML parser for bazarr's flat structure
+            data = {}
+            current_section = None
+
+            for line in content.split("\n"):
+                # Skip empty lines and comments
+                if not line.strip() or line.strip().startswith("#"):
+                    continue
+
+                # Check indentation
+                indent = len(line) - len(line.lstrip())
+
+                if indent == 0 and ":" in line:
+                    # Top-level section
+                    section_name = line.split(":")[0].strip()
+                    data[section_name] = {}
+                    current_section = section_name
+                elif indent > 0 and current_section and ":" in line:
+                    # Key under section
+                    key_part, _, value_part = line.strip().partition(":")
+                    key = key_part.strip()
+                    value = value_part.strip().strip("'").strip('"')
+                    data[current_section][key] = value
+
+            # Extract requested keys
+            for result_key, yaml_keys in keys.items():
+                if isinstance(yaml_keys, list) and len(yaml_keys) == 2:
+                    section, key = yaml_keys
+                    if section in data and key in data[section]:
+                        value = data[section][key]
+                        if value:
+                            result[result_key] = value
+        except Exception as e:
+            result["_error"] = str(e)
+    else:
+        # Parse INI format (legacy)
+        try:
+            import configparser
+
+            config = configparser.ConfigParser()
+            config.read(path)
+
+            for result_key, ini_keys in keys.items():
+                if isinstance(ini_keys, list) and len(ini_keys) == 2:
+                    section, key = ini_keys
+                    try:
+                        result[result_key] = config.get(section, key)
+                    except (configparser.NoSectionError, configparser.NoOptionError):
+                        pass
+        except Exception as e:
+            result["_error"] = str(e)
+
+    return result
+
+
+def parse_toml_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse TOML config file (basic parser)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+
+        # Basic TOML parsing
+        data = {}
+        current_section = None
+
+        for line in content.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            # Section header
+            if line.startswith("[") and line.endswith("]"):
+                current_section = line[1:-1].strip()
+                data[current_section] = {}
+                continue
+
+            # Key = value
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                if current_section:
+                    data[current_section][key] = value
+                else:
+                    data[key] = value
+
+        # Extract requested keys
+        for result_key, toml_keys in keys.items():
+            if isinstance(toml_keys, list):
+                value = data
+                for k in toml_keys:
+                    if isinstance(value, dict):
+                        value = value.get(k)
+                    else:
+                        value = None
+                        break
+                if value:
+                    result[result_key] = value
+            elif toml_keys in data:
+                result[result_key] = data[toml_keys]
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_php_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse PHP config file (extract quoted values)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+
+        for result_key, php_key in keys.items():
+            # Match $organizrAPI = 'value'; or "value"
+            pattern = rf"\${php_key}\s*=\s*['\"]([^'\"]+)['\"]"
+            match = re.search(pattern, content)
+            if match:
+                result[result_key] = match.group(1)
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_dotenv_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse .env file (KEY=value format)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    for result_key, env_key in keys.items():
+                        if key == env_key:
+                            result[result_key] = value
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_notifiarr_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse Notifiarr TOML config with special handling for bind_addr."""
+    # First parse as regular TOML
+    toml_result = parse_toml_config(path, keys)
+
+    result = {}
+    # Copy non-port fields
+    for k, v in toml_result.items():
+        if k != "port":
+            result[k] = v
+
+    # Extract port from bind_addr (format: "0.0.0.0:5454")
+    bind_addr = toml_result.get("port", "")
+    if bind_addr and ":" in str(bind_addr):
+        port_match = re.search(r":(\d+)$", str(bind_addr))
+        if port_match:
+            result["port"] = port_match.group(1)
+    elif bind_addr:
+        result["port"] = bind_addr
+
+    return result
+
+
+def parse_nzbget_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse NZBGet config file (key=value format)."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+                    for result_key, nzbget_key in keys.items():
+                        if key == nzbget_key:
+                            result[result_key] = value
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_rtorrent_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse rtorrent.rc config file."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                for result_key, rt_key in keys.items():
+                    if line.startswith(rt_key):
+                        # Extract port from network.scgi.open_port = 127.0.0.1:5000
+                        match = re.search(r":(\d+)", line)
+                        if match:
+                            result[result_key] = match.group(1)
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_docker_compose_env(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse environment variables from docker-compose.yml."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+
+        for result_key, env_key in keys.items():
+            # Match: - LT_PORT=5000 or - ASPNETCORE_URLS=http://127.0.0.1:9876
+            pattern = rf"-\s*{env_key}[=:]([^\n]+)"
+            match = re.search(pattern, content)
+            if match:
+                value = match.group(1).strip()
+                # Extract port from URL if needed (e.g., http://127.0.0.1:9876)
+                if "://" in value:
+                    port_match = re.search(r":(\d+)", value)
+                    if port_match:
+                        value = port_match.group(1)
+                result[result_key] = value
+    except Exception as e:
+        result["_error"] = str(e)
+    return result
+
+
+def parse_mdblistarr_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse MDBListarr config: port from docker-compose, API key from SQLite db."""
+    result = parse_docker_compose_env(path, keys)
+
+    # Try to extract MDBList API key from SQLite database
+    db_path = os.path.join(os.path.dirname(path), "db", "db.sqlite3")
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value FROM mdblistrr_preferences WHERE name = 'mdblist_apikey'"
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                result["apikey"] = row[0]
+            conn.close()
+        except Exception:
+            pass
+
+    return result
+
+
+def parse_mediafusion_config(path: str, keys: Dict[str, str]) -> Dict[str, Any]:
+    """Parse MediaFusion config: API password from compose, admin UUID from postgres."""
+    result = {}
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+        for result_key, env_key in keys.items():
+            # Match both YAML map style (KEY: "value") and list style (- KEY=value)
+            match = re.search(
+                rf'(?:^\s*{env_key}:\s*["\']?([^"\'\n]+)|^-\s*{env_key}=([^\n]+))',
+                content,
+                re.MULTILINE,
+            )
+            if match:
+                result[result_key] = (match.group(1) or match.group(2)).strip().strip("\"'")
+    except Exception as e:
+        result["_error"] = str(e)
+
+    # Build Torznab API key: API_PASSWORD:admin_uuid
+    api_password = result.get("api_password", "")
+    if api_password:
+        # Read postgres connection from docker-compose to query admin UUID
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            pg_match = re.search(
+                r"POSTGRES_URI:\s*[\"']?postgresql\+asyncpg://(\w+):([^@]+)@([^/]+)/(\w+)",
+                content,
+            )
+            if pg_match:
+                pg_user, pg_pass, pg_host, pg_db = pg_match.groups()
+                # Strip quotes
+                pg_pass = pg_pass.rstrip("\"'")
+                import subprocess as _sp
+
+                pg_result = _sp.run(
+                    [
+                        "docker", "exec", "mediafusion-postgres",
+                        "psql", "-U", pg_user, "-d", pg_db, "-tAc",
+                        "SELECT uuid FROM users WHERE role='ADMIN' LIMIT 1;",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                admin_uuid = pg_result.stdout.strip()
+                if admin_uuid:
+                    result["apikey"] = f"{api_password}:{admin_uuid}"
+        except Exception:
+            pass
+
+    # Get port from nginx since gunicorn port is patched at runtime
+    port = get_nginx_port("mediafusion")
+    if port:
+        result["port"] = port
+
+    return result
+
+
+def get_systemd_port(service_name: str) -> Optional[str]:
+    """Extract port from systemd service environment."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", service_name, "--property=Environment"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            match = re.search(r"PORT=(\d+)", result.stdout)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def get_nginx_port(app_name: str) -> Optional[str]:
+    """Extract port from nginx config."""
+    nginx_paths = [
+        f"/etc/nginx/apps/{app_name}.conf",
+        f"/etc/nginx/sites-available/{app_name}",
+    ]
+    for path in nginx_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    content = f.read()
+                # Match proxy_pass http://127.0.0.1:PORT
+                match = re.search(r"proxy_pass\s+https?://[^:]+:(\d+)", content)
+                if match:
+                    return match.group(1)
+            except Exception:
+                pass
+    return None
+
+
+def parse_app_config(
+    app_name: str, config_def: Dict[str, Any], users: List[str]
+) -> Dict[str, Any]:
+    """Parse app configuration and extract values."""
+    result = {"app": app_name, "installed": True}
+
+    # Expand and find config file
+    config_paths = expand_config_paths(config_def.get("config_paths", []), users)
+    config_file = find_config_file(config_paths)
+
+    if config_file:
+        result["config_file"] = config_file
+        fmt = config_def.get("format", "")
+        keys = config_def.get("keys", {})
+
+        # Parse based on format
+        if fmt == "xml":
+            parsed = parse_xml_config(config_file, keys)
+        elif fmt == "plex_xml":
+            parsed = parse_plex_xml(config_file, keys)
+        elif fmt == "json":
+            parsed = parse_json_config(config_file, keys)
+        elif fmt == "json_python":
+            parsed = parse_json_python_config(config_file, keys)
+        elif fmt == "decypharr":
+            parsed = parse_decypharr_config(config_file, keys)
+        elif fmt == "yaml":
+            parsed = parse_yaml_config(config_file, keys)
+        elif fmt == "ini":
+            parsed = parse_ini_config(config_file, keys)
+        elif fmt == "bazarr":
+            parsed = parse_bazarr_config(config_file, keys)
+        elif fmt == "toml":
+            parsed = parse_toml_config(config_file, keys)
+        elif fmt == "php":
+            parsed = parse_php_config(config_file, keys)
+        elif fmt == "dotenv":
+            parsed = parse_dotenv_config(config_file, keys)
+        elif fmt == "notifiarr":
+            parsed = parse_notifiarr_config(config_file, keys)
+        elif fmt == "nzbget":
+            parsed = parse_nzbget_config(config_file, keys)
+        elif fmt == "rtorrent":
+            parsed = parse_rtorrent_config(config_file, keys)
+        elif fmt == "docker_compose":
+            parsed = parse_docker_compose_env(config_file, keys)
+        elif fmt == "mdblistarr":
+            parsed = parse_mdblistarr_config(config_file, keys)
+        elif fmt == "mediafusion":
+            parsed = parse_mediafusion_config(config_file, keys)
+        else:
+            parsed = {}
+
+        result.update(parsed)
+    else:
+        result["config_file"] = None
+
+    # Fallback: try to get port from systemd or nginx
+    if "port" not in result or not result.get("port"):
+        port = get_systemd_port(f"{app_name}.service")
+        if port:
+            result["port"] = port
+            result["port_source"] = "systemd"
+
+    if "port" not in result or not result.get("port"):
+        port = get_nginx_port(app_name)
+        if port:
+            result["port"] = port
+            result["port_source"] = "nginx"
+
+    # Use default port if defined
+    if "port" not in result and "default_port" in config_def:
+        result["port"] = str(config_def["default_port"])
+        result["port_source"] = "default"
+
+    return result
+
+
+# =============================================================================
+# Discovery Functions
+# =============================================================================
+
+
+def discover_installed_apps() -> List[str]:
+    """Discover all installed Swizzin apps from lock files."""
+    apps = []
+    lock_pattern = os.path.join(LOCK_DIR, ".*.lock")
+
+    for lock_file in glob.glob(lock_pattern):
+        basename = os.path.basename(lock_file)
+        # Extract app name: .appname.lock -> appname
+        app_name = basename[1:-5]  # Remove leading . and trailing .lock
+        # Handle multi-instance: .sonarr_4k.lock -> sonarr-4k
+        app_name = app_name.replace("_", "-")
+        apps.append(app_name)
+
+    return sorted(apps)
+
+
+def get_multi_instance_config(base_app: str, instance_name: str, users: List[str]) -> Dict[str, Any]:
+    """Get config for multi-instance app like sonarr-4k or bazarr-4k."""
+    result = {"app": f"{base_app}-{instance_name}", "installed": True}
+
+    # Bazarr uses YAML format (or INI for older versions)
+    if base_app == "bazarr":
+        config_patterns = [
+            f"/home/{{user}}/.config/{base_app}-{instance_name}/config/config.yaml",
+            f"/home/{{user}}/.config/{base_app}-{instance_name}/config/config.ini",
+        ]
+        config_paths = expand_config_paths(config_patterns, users)
+        config_file = find_config_file(config_paths)
+
+        if config_file:
+            result["config_file"] = config_file
+            keys = {
+                "port": ["general", "port"],
+                "baseurl": ["general", "base_url"],
+                "apikey": ["auth", "apikey"],
+            }
+            parsed = parse_bazarr_config(config_file, keys)
+            result.update(parsed)
+        else:
+            # Try nginx fallback
+            port = get_nginx_port(f"{base_app}-{instance_name}")
+            if port:
+                result["port"] = port
+                result["port_source"] = "nginx"
+        return result
+
+    # *arr apps (sonarr, radarr, etc.) use XML config
+    config_patterns = [
+        f"/home/{{user}}/.config/{base_app}-{instance_name}/config.xml",
+        f"/home/{{user}}/.config/{base_app}{instance_name}/config.xml",
+        f"/home/{{user}}/.config/{base_app.capitalize()}-{instance_name}/config.xml",
+        f"/home/{{user}}/.config/{base_app.capitalize()}{instance_name}/config.xml",
+    ]
+
+    config_paths = expand_config_paths(config_patterns, users)
+    config_file = find_config_file(config_paths)
+
+    if config_file:
+        result["config_file"] = config_file
+        keys = {
+            "port": "Port",
+            "baseurl": "UrlBase",
+            "apikey": "ApiKey",
+        }
+        parsed = parse_xml_config(config_file, keys)
+        result.update(parsed)
+    else:
+        # Try nginx fallback
+        port = get_nginx_port(f"{base_app}-{instance_name}")
+        if port:
+            result["port"] = port
+            result["port_source"] = "nginx"
+
+    return result
+
+
+def get_app_info(app_name: str, users: List[str]) -> Dict[str, Any]:
+    """Get configuration info for a specific app."""
+    # Check if it's a multi-instance app (e.g., sonarr-4k, bazarr-4k)
+    for base_app in ["sonarr", "radarr", "lidarr", "readarr", "prowlarr", "bazarr"]:
+        if app_name.startswith(f"{base_app}-") and app_name != base_app:
+            instance_name = app_name[len(base_app) + 1 :]
+            return get_multi_instance_config(base_app, instance_name, users)
+
+    # Standard app
+    if app_name in APP_CONFIGS:
+        return parse_app_config(app_name, APP_CONFIGS[app_name], users)
+
+    # Unknown app - try generic detection
+    result = {"app": app_name, "installed": True, "config_file": None}
+
+    # Try nginx fallback
+    port = get_nginx_port(app_name)
+    if port:
+        result["port"] = port
+        result["port_source"] = "nginx"
+
+    return result
+
+
+# =============================================================================
+# Output Functions
+# =============================================================================
+
+
+def build_full_url(info: Dict[str, Any]) -> str:
+    """Build full URL from port and baseurl."""
+    port = info.get("port")
+    baseurl = info.get("baseurl", "")
+
+    if not port:
+        return "-"
+
+    # Determine protocol - only use SSL if explicitly enabled
+    protocol = "http"
+    ssl_enabled = info.get("enablessl") == "True"
+
+    if ssl_enabled:
+        protocol = "https"
+        # Use SSL port if available and SSL is enabled
+        if info.get("sslport"):
+            port = info.get("sslport")
+
+    # Build URL
+    url = f"{protocol}://localhost:{port}"
+
+    # Add baseurl if present
+    if baseurl:
+        # Ensure baseurl starts with /
+        if not baseurl.startswith("/"):
+            baseurl = "/" + baseurl
+        # Remove trailing slash
+        baseurl = baseurl.rstrip("/")
+        url += baseurl
+
+    return url
+
+
+def format_table_output(apps_info: List[Dict[str, Any]], verbose: bool = False) -> str:
+    """Format output as a table."""
+    lines = []
+
+    # Calculate column widths dynamically
+    app_width = max(len(info.get("app", "")) for info in apps_info)
+    app_width = max(app_width, 12)  # minimum width
+
+    url_width = max(len(build_full_url(info)) for info in apps_info)
+    url_width = max(url_width, 10)  # minimum width
+
+    apikey_width = max(len(info.get("apikey") or info.get("token") or "-") for info in apps_info)
+    apikey_width = max(apikey_width, 10)  # minimum width
+
+    # Header
+    if verbose:
+        header = f"{'App':<{app_width}}  {'URL':<{url_width}}  {'API Key':<{apikey_width}}  Config File"
+        lines.append(header)
+        lines.append("-" * (app_width + url_width + apikey_width + 60))
+    else:
+        header = f"{'App':<{app_width}}  {'URL':<{url_width}}  {'API Key'}"
+        lines.append(header)
+        lines.append("-" * (app_width + url_width + apikey_width + 6))
+
+    # Data rows
+    for info in apps_info:
+        app = info.get("app", "?")
+        url = build_full_url(info)
+        apikey = info.get("apikey") or info.get("token") or "-"
+
+        if verbose:
+            config_file = info.get("config_file") or "-"
+            # Show debug info for port/ssl
+            port_info = f"port={info.get('port', '-')}"
+            if info.get("sslport"):
+                port_info += f",sslport={info.get('sslport')}"
+            if info.get("enablessl"):
+                port_info += f",ssl={info.get('enablessl')}"
+            lines.append(f"{app:<{app_width}}  {url:<{url_width}}  {apikey:<{apikey_width}}  [{port_info}] {config_file}")
+        else:
+            lines.append(f"{app:<{app_width}}  {url:<{url_width}}  {apikey}")
+
+    return "\n".join(lines)
+
+
+def format_json_output(apps_info: List[Dict[str, Any]]) -> str:
+    """Format output as JSON with full URLs."""
+    # Add computed full_url to each entry
+    for info in apps_info:
+        info["full_url"] = build_full_url(info)
+    return json.dumps(apps_info, indent=2)
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Discover Swizzin apps and extract configuration details.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Installation:
+  sudo ./swizzin-app-info --install    Install to /usr/local/bin/
+  sudo swizzin-app-info --uninstall    Remove from /usr/local/bin/
+
+Examples:
+  swizzin-app-info                     List all installed apps
+  swizzin-app-info --json              Output as JSON for scripting
+  swizzin-app-info --app sonarr        Show only Sonarr info
+  swizzin-app-info -v                  Include config file paths
+        """,
+    )
+    parser.add_argument(
+        "--app",
+        "-a",
+        help="Show info for specific app only",
+    )
+    parser.add_argument(
+        "--json",
+        "-j",
+        action="store_true",
+        help="Output as JSON",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show config file paths",
+    )
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Install to /usr/local/bin/ (requires sudo)",
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Remove from /usr/local/bin/ (requires sudo)",
+    )
+    args = parser.parse_args()
+
+    # Auto-update installed copy from repo when available
+    if not args.install and not args.uninstall:
+        check_for_update()
+
+    # Handle installation commands first
+    if args.install:
+        install_self()
+        sys.exit(0)
+    if args.uninstall:
+        uninstall_self()
+        sys.exit(0)
+
+    # Get Swizzin users
+    users = get_swizzin_users()
+    if not users:
+        print("Warning: No Swizzin users found, using fallback detection", file=sys.stderr)
+        users = ["user"]  # Fallback
+
+    # Discover installed apps
+    installed_apps = discover_installed_apps()
+
+    if not installed_apps:
+        print("No installed Swizzin apps found.", file=sys.stderr)
+        sys.exit(1)
+
+    # Filter if specific app requested
+    if args.app:
+        if args.app not in installed_apps:
+            print(f"App '{args.app}' is not installed.", file=sys.stderr)
+            sys.exit(1)
+        installed_apps = [args.app]
+
+    # Get info for each app
+    apps_info = []
+    for app_name in installed_apps:
+        info = get_app_info(app_name, users)
+        apps_info.append(info)
+
+    # Output
+    if args.json:
+        print(format_json_output(apps_info))
+    else:
+        print(format_table_output(apps_info, verbose=args.verbose))
+
+
+if __name__ == "__main__":
+    main()

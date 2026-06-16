@@ -1,0 +1,122 @@
+id: mediafusion
+name: MediaFusion (Local)
+description: "Custom indexer for local MediaFusion instance"
+language: en-US
+type: semi-private
+encoding: UTF-8
+followredirect: true
+testlinktorrent: false
+requestDelay: 2
+links:
+  - http://127.0.0.1:__PORT__
+
+caps:
+  categories:
+    Movies: Movies
+    Movies/Foreign: Movies
+    Movies/Other: Movies
+    Movies/SD: Movies
+    Movies/HD: Movies
+    Movies/UHD: Movies
+    Movies/BluRay: Movies
+    Movies/3D: Movies
+    TV: TV
+    TV/Foreign: TV
+    TV/SD: TV
+    TV/HD: TV
+    TV/Other: TV
+    TV/UHD: TV
+    TV/Sport: TV
+    TV/Anime: TV
+  modes:
+    search: [q]
+    movie-search: [q, imdbid]
+    tv-search: [q, season, ep, imdbid]
+
+settings:
+  - name: apikey
+    type: text
+    label: API Key
+    default: ""
+  - name: validate_imdb_movie
+    type: text
+    label: IMDB ID for Radarr validation (must exist in indexer)
+    default: "tt7286456"
+  - name: validate_imdb_tv
+    type: text
+    label: IMDB ID for Sonarr validation (must exist in indexer)
+    default: "tt3581920"
+
+search:
+  paths:
+    - path: "/torznab?t=movie&imdbid={{ if .Query.IMDBID }}{{ .Query.IMDBID }}{{ else }}{{ .Config.validate_imdb_movie }}{{ end }}&apikey={{ .Config.apikey }}"
+      method: get
+      response:
+        type: xml
+      categories: [Movies]
+
+    - path: "/torznab?t=tvsearch&imdbid={{ if .Query.IMDBID }}{{ .Query.IMDBID }}{{ else }}{{ .Config.validate_imdb_tv }}{{ end }}{{ if .Query.Season }}&season={{ .Query.Season }}{{ end }}{{ if .Query.Ep }}&ep={{ .Query.Ep }}{{ end }}&apikey={{ .Config.apikey }}"
+      method: get
+      response:
+        type: xml
+      categories: [TV]
+
+    - path: "/torznab?t=search&q={{ .Keywords }}&apikey={{ .Config.apikey }}"
+      method: get
+      response:
+        type: xml
+      categories: [Movies, TV]
+
+  rows:
+    selector: rss > channel > item
+
+  fields:
+    title:
+      selector: title
+    category:
+      selector: category
+      filters:
+        - name: replace
+          args: ["2000", "Movies"]
+        - name: replace
+          args: ["2010", "Movies"]
+        - name: replace
+          args: ["2020", "Movies"]
+        - name: replace
+          args: ["2030", "Movies"]
+        - name: replace
+          args: ["2040", "Movies"]
+        - name: replace
+          args: ["2045", "Movies"]
+        - name: replace
+          args: ["2050", "Movies"]
+        - name: replace
+          args: ["2060", "Movies"]
+        - name: replace
+          args: ["5000", "TV"]
+        - name: replace
+          args: ["5010", "TV"]
+        - name: replace
+          args: ["5020", "TV"]
+        - name: replace
+          args: ["5030", "TV"]
+        - name: replace
+          args: ["5040", "TV"]
+        - name: replace
+          args: ["5045", "TV"]
+        - name: replace
+          args: ["5060", "TV"]
+        - name: replace
+          args: ["5070", "TV"]
+    infohash:
+      selector: guid
+    magnet:
+      selector: link
+    size:
+      selector: size
+    date:
+      selector: pubDate
+    downloadvolumefactor:
+      text: "0"
+    uploadvolumefactor:
+      text: "1"
