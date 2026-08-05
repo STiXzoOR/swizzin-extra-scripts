@@ -4,12 +4,13 @@ set -euo pipefail
 # STiXzoOR 2026
 # Usage: bash nzbdav.sh [--update [--verbose]|--remove [--force]|--register-panel]
 #
-# Tracks STiXzoOR/nzbdav via the moving `latest` git tag, so `--update`
-# always picks up the newest release without manual version bumps. The
-# image is built locally with URL_BASE=${NZBDAV_URL_BASE} as a build arg;
-# React Router v7's basename is build-time, so the prebuilt fork image
-# (which ships URL_BASE='' for everyone) won't work for sub-path hosting
-# without this rebuild step. Override NZBDAV_FORK_TAG=<x.y.z> to pin.
+# Builds nzbdav/nzbdav (InfiniDysk, the maintained community successor
+# to nzbdav-dev/nzbdav) from upstream release tags. Native NZBDAV_URL_BASE
+# sub-path support merged upstream in v0.10.0 (PR #818), so no fork is
+# needed anymore — but React Router's basename is build-time, so the
+# prebuilt upstream images (root-hosted) still won't work for sub-path
+# hosting without this local rebuild step baking our prefix in.
+# Override NZBDAV_FORK_TAG=<tag|branch> to pin.
 
 . /etc/swizzin/sources/globals.sh
 
@@ -94,22 +95,28 @@ _verbose() {
 # ==============================================================================
 # Fork pinning
 # ==============================================================================
-# Tracks the STiXzoOR/nzbdav fork via the moving `latest` git tag — release.yml
-# repoints `latest` to each new release commit after release-please cuts a PR,
-# so `--update` always picks up the newest release without bumping a hardcoded
-# version here. Override NZBDAV_FORK_TAG (e.g. NZBDAV_FORK_TAG=0.6.7) for
-# reproducible / pinned installs.
+# Builds upstream nzbdav/nzbdav directly — our NZBDAV_URL_BASE sub-path
+# patch merged in v0.10.0 (https://github.com/nzbdav/nzbdav/pull/818).
+# By default the newest upstream release tag is resolved at run time so
+# `--update` keeps picking up releases without manual bumps; the fallback
+# pin below is used when the GitHub API is unreachable. Upstream also
+# maintains a movable `lts` git tag (conservative channel) — set
+# NZBDAV_FORK_TAG=lts to track it instead.
 #
 # NZBDAV_URL_BASE bakes the React Router basename, Vite asset base, and
-# the `__URL_BASE__` JS constant into the client bundle (build-time). It
-# must match the URL_BASE env var rendered into the compose file
-# (runtime) — both halves of the same setting; see docs/url-base.md in
-# the fork repo. The published fork images on Docker Hub ship URL_BASE=""
-# so anyone can mount under any sub-path; that's why this installer builds
-# locally with our URL_BASE baked in instead of pulling.
+# the `__URL_BASE__` JS constant into the client bundle (build-time). The
+# runtime env var in the compose file must match — the app refuses to
+# start on a mismatch; see docs/configuration/url-base.md upstream.
+# Upstream's published images ship root-hosted (no URL_BASE), which is
+# why this installer builds locally with our prefix baked in instead of
+# pulling.
 
-NZBDAV_FORK_REPO="STiXzoOR/nzbdav"
-NZBDAV_FORK_TAG="${NZBDAV_FORK_TAG:-latest}"
+NZBDAV_FORK_REPO="nzbdav/nzbdav"
+NZBDAV_FALLBACK_TAG="v0.10.0"
+if [[ -z "${NZBDAV_FORK_TAG:-}" ]]; then
+    NZBDAV_FORK_TAG=$(curl -sf --max-time 10 "https://api.github.com/repos/${NZBDAV_FORK_REPO}/releases/latest"         | grep -oP '"tag_name":\s*"\K[^"]+' || true)
+    NZBDAV_FORK_TAG="${NZBDAV_FORK_TAG:-${NZBDAV_FALLBACK_TAG}}"
+fi
 NZBDAV_URL_BASE="/nzbdav"
 
 # ==============================================================================
@@ -120,7 +127,7 @@ app_name="nzbdav"
 app_pretty="NZBDav"
 app_lockname="${app_name}"
 app_baseurl="${app_name}"
-app_image="nzbdav-stixzoor:${NZBDAV_FORK_TAG}"
+app_image="nzbdav-stixzoor:${NZBDAV_FORK_TAG//\//-}"
 app_dir="/opt/nzbdav"
 app_configdir="${app_dir}/config"
 app_servicefile="${app_name}.service"
@@ -306,12 +313,13 @@ _build_nzbdav_image() {
     (
         _verbose "Cloning https://github.com/${NZBDAV_FORK_REPO} at ${git_ref} into $tmp"
         git -c advice.detachedHead=false clone --depth 1 \
+            --recurse-submodules --shallow-submodules \
             --branch "${git_ref}" \
             "https://github.com/${NZBDAV_FORK_REPO}" "$tmp" >>"$log" 2>&1 || exit 1
 
-        _verbose "Running: docker build --build-arg URL_BASE=${NZBDAV_URL_BASE} -t ${app_image} $tmp"
+        _verbose "Running: docker build --build-arg NZBDAV_URL_BASE=${NZBDAV_URL_BASE} -t ${app_image} $tmp"
         docker build \
-            --build-arg "URL_BASE=${NZBDAV_URL_BASE}" \
+            --build-arg "NZBDAV_URL_BASE=${NZBDAV_URL_BASE}" \
             --build-arg "NZBDAV_VERSION=${NZBDAV_FORK_TAG}" \
             --build-arg "REPO_URL=https://github.com/${NZBDAV_FORK_REPO}" \
             -t "${app_image}" "$tmp" >>"$log" 2>&1 || exit 1
@@ -335,11 +343,11 @@ _wait_for_health() {
     local interval=2
     local elapsed=0
     while (( elapsed < max_wait )); do
-        # /health is served at the unprefixed root by the frontend even when
-        # URL_BASE is set — it proxies to the backend's own /health and
+        # /healthz is served at the unprefixed root by the frontend even when
+        # URL_BASE is set — it proxies to the backend's own health and
         # surfaces the result. Keeps everything on the frontend port so the
         # backend's 8080 stays purely internal.
-        if curl -sf "http://127.0.0.1:${app_port}/health" >/dev/null 2>&1; then
+        if curl -sf "http://127.0.0.1:${app_port}/healthz" >/dev/null 2>&1; then
             return 0
         fi
         sleep "$interval"
@@ -394,16 +402,15 @@ services:
       - PUID=${uid}
       - PGID=${gid}
       - PORT=${app_port}
-      - URL_BASE=${NZBDAV_URL_BASE}
+      - NZBDAV_URL_BASE=${NZBDAV_URL_BASE}
     volumes:
       - ${app_configdir}:/config
       - /mnt:/mnt:rslave
     healthcheck:
-      # Hit the frontend's /health endpoint — it's served at the unprefixed
-      # root regardless of URL_BASE and proxies to the backend's own /health,
-      # so the .NET process remains the source of truth without exposing the
-      # internal :8080.
-      test: ["CMD", "curl", "-f", "http://localhost:${app_port}/health"]
+      # Hit the frontend's /healthz endpoint — it's served at the unprefixed
+      # root regardless of URL_BASE (the old /health path now 302s to login,
+      # which curl -f would wrongly treat as healthy).
+      test: ["CMD", "curl", "-f", "http://localhost:${app_port}/healthz"]
       interval: 1m
       timeout: 5s
       retries: 3
@@ -483,7 +490,7 @@ BindsTo=nzbdav.service
 Type=notify
 User=${user}
 Group=${user}
-ExecStartPre=/bin/bash -c 'for i in \$(seq 1 30); do curl -sf http://127.0.0.1:${app_port}/health && exit 0; sleep 2; done; echo "NZBDav health check timed out after 60s"; exit 1'
+ExecStartPre=/bin/bash -c 'for i in \$(seq 1 30); do curl -sf http://127.0.0.1:${app_port}/healthz && exit 0; sleep 2; done; echo "NZBDav health check timed out after 60s"; exit 1'
 ExecStart=/usr/bin/rclone mount nzbdav: ${app_mount_point} \
     --config ${app_dir}/rclone.conf \
     --uid ${uid} --gid ${gid} \
@@ -843,16 +850,15 @@ services:
       - PUID=${uid}
       - PGID=${gid}
       - PORT=${app_port}
-      - URL_BASE=${NZBDAV_URL_BASE}
+      - NZBDAV_URL_BASE=${NZBDAV_URL_BASE}
     volumes:
       - ${app_configdir}:/config
       - /mnt:/mnt:rslave
     healthcheck:
-      # Hit the frontend's /health endpoint — it's served at the unprefixed
-      # root regardless of URL_BASE and proxies to the backend's own /health,
-      # so the .NET process remains the source of truth without exposing the
-      # internal :8080.
-      test: ["CMD", "curl", "-f", "http://localhost:${app_port}/health"]
+      # Hit the frontend's /healthz endpoint — it's served at the unprefixed
+      # root regardless of URL_BASE (the old /health path now 302s to login,
+      # which curl -f would wrongly treat as healthy).
+      test: ["CMD", "curl", "-f", "http://localhost:${app_port}/healthz"]
       interval: 1m
       timeout: 5s
       retries: 3

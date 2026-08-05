@@ -81,6 +81,11 @@ DEFAULTS = {
     # Format: "radarr,radarr-4k" or "sonarr,sonarr-anime"
     "RADARR_INSTANCES": "",
     "SONARR_INSTANCES": "",
+    # Max show lists for anime instances (empty = same as MAX_LISTS_SHOWS)
+    "MAX_LISTS_SHOWS_ANIME": "",
+    # Base URL used when building import-list URLs (empty = direct mdblist.com).
+    # Point at the local mdblist-filter-proxy so new lists are proxied from birth.
+    "LIST_URL_BASE": "",
     # Cleanup: remove managed lists with fewer likes than this
     "CLEANUP_MIN_LIKES": "20",
     # Tag prefix for managed import lists (to identify our lists)
@@ -634,6 +639,12 @@ def discover_lists(mdb: MDBListAPI, config: Dict[str, str], has_anime_instance: 
             log_warn(f"Invalid pinned list ID: {list_id_str}")
             continue
         if list_id_int in seen_ids:
+            # Already discovered via search - still mark it pinned so it
+            # sorts ahead of unpinned lists in the slot allocation
+            for lst in all_lists:
+                if lst["id"] == list_id_int:
+                    lst["_pinned"] = True
+                    break
             continue
         try:
             info = mdb.get_list_info(list_id_int)
@@ -680,9 +691,12 @@ def discover_lists(mdb: MDBListAPI, config: Dict[str, str], has_anime_instance: 
         else:
             log_debug(f"  Skipping list '{lst.get('name', '?')}': unsupported mediatype '{mediatype}'")
 
-    # Sort by likes descending
-    movie_lists.sort(key=lambda x: x.get("likes") or 0, reverse=True)
-    show_lists.sort(key=lambda x: x.get("likes") or 0, reverse=True)
+    # Sort pinned lists first, then by likes descending
+    # (pins bypass the like filters, so without this they could be crowded
+    # out of the MAX_LISTS slots by higher-liked discovered lists)
+    sort_key = lambda x: (not x.get("_pinned", False), -(x.get("likes") or 0))
+    movie_lists.sort(key=sort_key)
+    show_lists.sort(key=sort_key)
 
     log(f"Discovered {len(movie_lists)} movie lists, {len(show_lists)} show lists (after filters)")
     return movie_lists, show_lists
@@ -692,6 +706,19 @@ def discover_lists(mdb: MDBListAPI, config: Dict[str, str], has_anime_instance: 
 # Import List URL Construction
 # =============================================================================
 
+# Effective list URL base; main() overrides this from LIST_URL_BASE config
+# so lists can be routed through the local filter proxy from creation.
+LIST_URL_BASE = MDBLIST_LIST_BASE
+
+
+def normalize_list_url(url: str) -> str:
+    """Reduce a list URL to its /lists/<user>/<slug>/json path for host-agnostic
+    comparison — existing lists may point at the local filter proxy while
+    discovery produces mdblist.com URLs (or vice versa)."""
+    m = re.search(r"(/lists/.+)$", url)
+    return m.group(1) if m else url
+
+
 def get_list_url(lst: dict) -> Optional[str]:
     """Build the MDBList JSON URL for a list (compatible with Radarr/Sonarr Custom Lists)."""
     username = lst.get("user_name", "")
@@ -699,7 +726,7 @@ def get_list_url(lst: dict) -> Optional[str]:
     if not username or not slug:
         log_warn(f"List '{lst.get('name', '?')}' missing username or slug, skipping")
         return None
-    return f"{MDBLIST_LIST_BASE}/{username}/{slug}/json"
+    return f"{LIST_URL_BASE}/{username}/{slug}/json"
 
 
 # =============================================================================
@@ -791,7 +818,7 @@ def sync_lists_to_instance(
     for il in all_import:
         for field in il.get("fields", []):
             if field.get("name") in ("url", "baseUrl") and field.get("value"):
-                all_urls.add(field["value"])
+                all_urls.add(normalize_list_url(field["value"]))
 
     slots_available = max_lists - len(managed)
     added = 0
@@ -803,7 +830,7 @@ def sync_lists_to_instance(
         list_url = get_list_url(lst)
         if not list_url:
             continue
-        if list_url in all_urls:
+        if normalize_list_url(list_url) in all_urls:
             log_debug(f"  Already exists: {lst['name']}")
             continue
 
@@ -982,6 +1009,10 @@ def main():
 
     # Load config
     config = load_config()
+    global LIST_URL_BASE
+    LIST_URL_BASE = (config.get("LIST_URL_BASE") or "").rstrip("/") or MDBLIST_LIST_BASE
+    if LIST_URL_BASE != MDBLIST_LIST_BASE and not LIST_URL_BASE.endswith("/lists"):
+        LIST_URL_BASE += "/lists"
     state = load_state()
 
     api_key = config["MDBLIST_API_KEY"]
@@ -1116,9 +1147,12 @@ def main():
 
             # Anime instances get anime lists, regular instances get the rest
             instance_lists = anime_shows if "anime" in name else regular_shows
+            instance_max = max_shows
+            if "anime" in name and config.get("MAX_LISTS_SHOWS_ANIME"):
+                instance_max = int(config["MAX_LISTS_SHOWS_ANIME"])
 
             added = sync_lists_to_instance(
-                name, api, instance_lists, max_shows, defaults,
+                name, api, instance_lists, instance_max, defaults,
                 build_sonarr_import_list, prefix, state, dry_run,
             )
             total_added += added
