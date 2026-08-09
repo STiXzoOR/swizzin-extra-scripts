@@ -523,7 +523,7 @@ APP_CONFIGS = {
         "format": "docker_compose",
         "keys": {
             "port": "PORT",
-            "image": "nzbdav-stixzoor:v0.10.0",
+            "image": "nzbdav-stixzoor:v1.0.1",
         },
     },
     # Key must match the lock-file name (/install/.easynewsindexer.lock — no

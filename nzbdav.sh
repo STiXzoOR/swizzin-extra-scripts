@@ -4,8 +4,9 @@ set -euo pipefail
 # STiXzoOR 2026
 # Usage: bash nzbdav.sh [--update [--verbose]|--remove [--force]|--register-panel]
 #
-# Builds nzbdav/nzbdav (InfiniDysk, the maintained community successor
-# to nzbdav-dev/nzbdav) from upstream release tags. Native NZBDAV_URL_BASE
+# Builds infinidysk/infinidysk (InfiniDysk, the maintained community
+# successor to nzbdav-dev/nzbdav; renamed from nzbdav/nzbdav in v1.0.0)
+# from upstream release tags. Native NZBDAV_URL_BASE
 # sub-path support merged upstream in v0.10.0 (PR #818), so no fork is
 # needed anymore — but React Router's basename is build-time, so the
 # prebuilt upstream images (root-hosted) still won't work for sub-path
@@ -95,8 +96,12 @@ _verbose() {
 # ==============================================================================
 # Fork pinning
 # ==============================================================================
-# Builds upstream nzbdav/nzbdav directly — our NZBDAV_URL_BASE sub-path
-# patch merged in v0.10.0 (https://github.com/nzbdav/nzbdav/pull/818).
+# Builds upstream infinidysk/infinidysk directly (renamed from
+# nzbdav/nzbdav in v1.0.0; the old path redirects during a transition
+# period) — our NZBDAV_URL_BASE sub-path patch merged in v0.10.0
+# (https://github.com/infinidysk/infinidysk/pull/818). The Dockerfile
+# kept the NZBDAV_URL_BASE / NZBDAV_VERSION build-args through the
+# rename, so the local rebuild flow is unchanged.
 # By default the newest upstream release tag is resolved at run time so
 # `--update` keeps picking up releases without manual bumps; the fallback
 # pin below is used when the GitHub API is unreachable. Upstream also
@@ -111,8 +116,8 @@ _verbose() {
 # why this installer builds locally with our prefix baked in instead of
 # pulling.
 
-NZBDAV_FORK_REPO="nzbdav/nzbdav"
-NZBDAV_FALLBACK_TAG="v0.10.0"
+NZBDAV_FORK_REPO="infinidysk/infinidysk"
+NZBDAV_FALLBACK_TAG="v1.0.1"
 if [[ -z "${NZBDAV_FORK_TAG:-}" ]]; then
     NZBDAV_FORK_TAG=$(curl -sf --max-time 10 "https://api.github.com/repos/${NZBDAV_FORK_REPO}/releases/latest"         | grep -oP '"tag_name":\s*"\K[^"]+' || true)
     NZBDAV_FORK_TAG="${NZBDAV_FORK_TAG:-${NZBDAV_FALLBACK_TAG}}"

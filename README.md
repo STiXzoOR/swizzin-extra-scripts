@@ -26,7 +26,7 @@ A collection of installer scripts for integrating additional applications into [
 | [aiostreams.sh](#aiostreams)          | [AIOStreams](https://github.com/Viren070/AIOStreams)         | Stremio super-addon consolidating debrid services and addons     |
 | [mediafusion.sh](#mediafusion)        | [MediaFusion](https://github.com/mhdzumair/MediaFusion)      | Stremio/Kodi add-on with Torznab API for Prowlarr               |
 | [zilean.sh](#zilean)                  | [Zilean](https://github.com/iPromKnight/zilean)              | DMM hashlist Torznab indexer for debrid content                  |
-| [nzbdav.sh](#nzbdav)                  | [NzbDav](https://github.com/nzbdav/nzbdav)                  | NZB-to-WebDAV bridge for debrid download clients                 |
+| [nzbdav.sh](#nzbdav)                  | [NzbDav](https://github.com/infinidysk/infinidysk)                  | NZB-to-WebDAV bridge for debrid download clients                 |
 | [newtarr.sh](#newtarr)               | [Newtarr](https://github.com/plexguide/Newtarr)             | Media library search tool (ElfHosted Huntarr fork)               |
 | [litterbox.sh](#litterbox)           | [LitterBox](https://github.com/elfhosted/litterbox)         | Real-Debrid library cleaner (bulk-deletes 451/infringing torrents) |
 | [nzbhydra2.sh](#nzbhydra2)            | [NZBHydra2](https://github.com/theotherp/nzbhydra2)         | Newznab/Torznab meta-search fronting multiple usenet indexers      |
