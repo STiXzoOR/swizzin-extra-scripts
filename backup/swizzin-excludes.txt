@@ -349,8 +349,14 @@ opt/zilean/docker-compose.yml
 opt/autopulse/docker-compose.yml
 
 # === NZBDAV ===
-# Keep config dir (SQLite DB), exclude docker-compose (recreated by installer)
+# Keep config dir (SQLite DB + blobs/ — blobs hold the NZB segment metadata
+# needed to remount every WebDAV file; NOT cache, must stay in backups).
+# Exclude docker-compose (recreated by installer) and the installer's local
+# rollback copies (config.bak.<timestamp>, ~80G each) — borg's own archive
+# history is the real rollback; re-scanning them nightly is pure waste.
 opt/nzbdav/docker-compose.yml
+opt/nzbdav/config.bak.*
+opt/nzbdav/config.bak.*/**
 
 # === EASYNEWS-INDEXER ===
 # Keep .env (Easynews creds + Newznab API key — the only stateful bits).
