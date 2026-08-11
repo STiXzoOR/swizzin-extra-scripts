@@ -510,6 +510,15 @@ APP_CONFIGS = {
         # and isn't host-reachable. Real port lives in swizdb at aiostreams/port
         # and is set by the installer.
     },
+    "remux": {
+        "config_paths": ["/opt/remux/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "image": "ghcr.io/lostb1t/remux:latest",
+        },
+        # No default_port — host port is allocated by the installer and lives
+        # in swizdb at remux/port (compose maps 127.0.0.1:<port>:3000).
+    },
     "mediafusion": {
         "config_paths": ["/opt/mediafusion/docker-compose.yml"],
         "format": "mediafusion",

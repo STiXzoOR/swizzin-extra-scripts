@@ -14,7 +14,7 @@ Swizzin installer scripts - bash installation scripts for integrating applicatio
 
 ## App-Specific Documentation
 
-- [Docker Apps](docs/apps/docker-apps.md) - Lingarr, LibreTranslate, MDBListarr, StremThru, MediaFusion, Zilean, NzbDAV
+- [Docker Apps](docs/apps/docker-apps.md) - Lingarr, LibreTranslate, MDBListarr, StremThru, MediaFusion, Zilean, NzbDAV, Remux
 - [Media Servers](docs/apps/media-servers.md) - Plex, Emby, Jellyfin subdomain scripts
 - [Plex Tunnel](docs/apps/plex-tunnel.md) - Plex with VPN tunnel (Hetzner bypass)
 - [Organizr](docs/apps/organizr.md) - SSO gateway

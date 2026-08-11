@@ -45,6 +45,7 @@ This backup system works with any SSH-accessible borg repository:
 | **cleanuparr**                 | Download queue cleanup                 |
 | **stremthru**                  | Debrid streaming proxy (SQLite)        |
 | **aiostreams**                 | Stremio super-addon (dotenv + JSON state) |
+| **remux**                      | Jellyfin-compatible media server (SQLite) |
 | **mediafusion**                | Stremio add-on + Torznab (Postgres)    |
 | **zilean**                     | DMM hashlist Torznab indexer (Postgres) |
 | **nzbdav**                     | NZB-to-WebDAV bridge (SQLite)          |

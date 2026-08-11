@@ -181,6 +181,35 @@ NZB-to-WebDAV bridge for using debrid services as download clients in arr apps.
 
 ---
 
+## Remux
+
+Jellyfin-compatible media server ([lostb1t/remux](https://github.com/lostb1t/remux), Rust). Aggregates content from Stremio addons, local files, WebDAV servers, and torrents; ships with jellyfin-ffmpeg for transcoding. Works with any Jellyfin client (Infuse, Swiftfin, Jellyfin apps).
+
+**Install:** `REMUX_DOMAIN=remux.example.com bash remux.sh`
+**Update:** `bash remux.sh --update` (add `--latest` to switch to the `:nightly` channel)
+**Remove:** `bash remux.sh --remove`
+
+### File Layout
+
+| Path                                | Purpose                                     |
+| ----------------------------------- | ------------------------------------------- |
+| `/opt/remux/docker-compose.yml`     | Compose file (recreated by installer)       |
+| `/opt/remux/data/`                  | All state: SQLite DB, config, logs, caches  |
+| `/etc/nginx/sites-available/remux`  | Subdomain vhost                             |
+| `/etc/systemd/system/remux.service` | Systemd wrapper                             |
+| `/install/.remux.lock`              | Swizzin lock file                           |
+
+### Features
+
+- **Subdomain-only** — Jellyfin-compatible clients need a clean root URL and Remux has no base-path support. Vhost mirrors emby.sh: WebSocket map, streaming timeouts (1h), `proxy_buffering off`, Range passthrough. No nginx basic auth — Remux has its own user management.
+- Runs as the app owner's uid:gid with `HOME=/data` (the bundled rqbit torrent engine aborts without a writable `$HOME/.cache`; everything else is baked to write under `/data`).
+- `/mnt` mounted read-only with `rslave` so `/mnt/symlinks` and the FUSE-backed rclone mounts it points into (zurg, nzbdav) resolve in-container and survive host remounts.
+- Release channels: `:latest` (stable, default) / `:nightly` via `--latest`, persisted in swizdb like aiostreams.
+- Healthcheck against the container's `/health` endpoint (returns 200 unauthenticated).
+- Admin dashboard at `/dashboard`; sources (WebDAV/Stremio/local) are configured there, not via env vars.
+
+---
+
 ## Easynews-as-indexer
 
 Bridge that wraps Easynews's proprietary file-level search behind a Newznab-compatible API, so the search index can be added to NZBHydra2 / Prowlarr / nzbdav as a Generic Newznab indexer. Image: [`ghcr.io/sanket9225/easynews_as_indexer`](https://github.com/Sanket9225/Easynews_as_indexer).

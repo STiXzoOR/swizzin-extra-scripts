@@ -323,6 +323,20 @@ opt/aiostreams/data/logs/**
 opt/aiostreams/data/cache
 opt/aiostreams/data/cache/**
 
+# === REMUX ===
+# Keep data/ (SQLite db.sqlite + config — everything lives under /data), exclude
+# docker-compose.yml (recreated by installer), runtime logs/caches, and torrent
+# payload data (re-downloadable; TORRENT_DATA_DIR=/data/torrents).
+opt/remux/docker-compose.yml
+opt/remux/data/logs
+opt/remux/data/logs/**
+opt/remux/data/.cache
+opt/remux/data/.cache/**
+opt/remux/data/cache
+opt/remux/data/cache/**
+opt/remux/data/torrents
+opt/remux/data/torrents/**
+
 # === MEDIAFUSION ===
 # Keep pgdata and redis dirs, exclude docker-compose (recreated by installer)
 opt/mediafusion/docker-compose.yml

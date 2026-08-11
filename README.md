@@ -24,6 +24,7 @@ A collection of installer scripts for integrating additional applications into [
 | [lingarr.sh](#lingarr)                | [Lingarr](https://github.com/lingarr-translate/lingarr)      | Extended Lingarr installer with subdomain support (Docker-based) |
 | [stremthru.sh](#stremthru)            | [StremThru](https://github.com/MunifTanjim/stremthru)        | Debrid streaming proxy with store management                     |
 | [aiostreams.sh](#aiostreams)          | [AIOStreams](https://github.com/Viren070/AIOStreams)         | Stremio super-addon consolidating debrid services and addons     |
+| [remux.sh](#remux)                    | [Remux](https://github.com/lostb1t/remux)                    | Jellyfin-compatible media server aggregating Stremio/WebDAV/local sources |
 | [mediafusion.sh](#mediafusion)        | [MediaFusion](https://github.com/mhdzumair/MediaFusion)      | Stremio/Kodi add-on with Torznab API for Prowlarr               |
 | [zilean.sh](#zilean)                  | [Zilean](https://github.com/iPromKnight/zilean)              | DMM hashlist Torznab indexer for debrid content                  |
 | [nzbdav.sh](#nzbdav)                  | [NzbDav](https://github.com/infinidysk/infinidysk)                  | NZB-to-WebDAV bridge for debrid download clients                 |

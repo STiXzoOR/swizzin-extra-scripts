@@ -23,7 +23,7 @@ Each installer script follows this sequence:
 | -------------------- | ------------------------------------------- | ------------------------------------------ |
 | Single-file binaries | `/usr/bin/<appname>`                        | decypharr, notifiarr, zurg                 |
 | Multi-file apps      | `/opt/<appname>/`                           | cleanuparr, seerr, byparr, huntarr, subgen, newtarr |
-| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr |
+| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr, remux |
 
 ## Files Overview
 
@@ -48,6 +48,7 @@ Each installer script follows this sequence:
 | `radarr.sh`         | Multi-instance Radarr manager                               |
 | `stremthru.sh`      | Debrid streaming proxy with store management (Docker)        |
 | `aiostreams.sh`     | Stremio super-addon consolidating debrid services + addons (Docker, single container) |
+| `remux.sh`          | Jellyfin-compatible media server aggregating Stremio/WebDAV/local sources (Docker, subdomain-only) |
 | `mediafusion.sh`    | Stremio/Kodi add-on with Torznab API (Docker, 5 containers) |
 | `zilean.sh`         | DMM hashlist Torznab indexer for debrid content (Docker)     |
 | `nzbdav.sh`         | NZB-to-WebDAV bridge for debrid download clients (Docker)    |
