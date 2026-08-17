@@ -121,6 +121,36 @@ app_dir="/opt/remux"
 app_datadir="${app_dir}/data"
 app_servicefile="${app_name}.service"
 
+# ------------------------------------------------------------------------------
+# MDBList → Stremio catalog sidecar (optional; default on)
+# ------------------------------------------------------------------------------
+# Remux's opendal-local scanner cannot index symlinked media (it lists via
+# opendal's fs backend, which reports symlinks as non-FILE and skips them), so a
+# debrid symlink farm under /mnt/symlinks yields no library. Instead, a curated
+# library comes from MDBList lists surfaced as Stremio catalogs. This sidecar
+# (jaruba/stremio-mdblist, pinned) turns MDBList list IDs into catalogs Remux
+# browses; playback still resolves through your stream addon(s).
+#
+# The sidecar is reachable ONLY on the compose network at
+# http://${mdblist_service_name}:${mdblist_port} — never exposed to host/net.
+# Disable entirely with REMUX_MDBLIST=false. Wire lists after install with:
+#   REMUX_MDBLIST_APIKEY=<key> bash remux.sh --add-mdblist <listId>[,<listId>...]
+mdblist_enabled="${REMUX_MDBLIST:-true}"
+mdblist_dir="/opt/remux-mdblist"
+mdblist_app="${mdblist_dir}/app"
+mdblist_service_name="mdblist" # compose service name == in-network hostname
+mdblist_container="remux-mdblist"
+mdblist_port="64321" # addon's internal listen port (never host-published)
+mdblist_node_image="node:20-alpine"
+mdblist_src_repo="jaruba/stremio-mdblist"
+mdblist_src_commit="af4e8c956f031624f75bd77483878abb9136e230"
+
+# True when the sidecar should be provisioned (REMUX_MDBLIST truthy)
+_mdblist_on() {
+    local v="${mdblist_enabled,,}"
+    [[ "$v" == "true" || "$v" == "1" || "$v" == "yes" ]]
+}
+
 # ==============================================================================
 # Release Channel / Image Tag Resolution
 # ==============================================================================
@@ -411,20 +441,68 @@ _install_docker() {
 }
 
 # ==============================================================================
-# App Installation
+# MDBList Catalog Sidecar Provisioning
 # ==============================================================================
-_install_remux() {
-    mkdir -p "$app_datadir"
-    chown -R "${user}:${user}" "$app_dir"
+# Stage the pinned addon source under ${mdblist_app} and install its production
+# deps into that dir (mounted read-only into the sidecar container). Idempotent:
+# a re-run at the same pinned commit with node_modules present is a no-op.
+# Requires Docker (used for a throwaway `npm install`), so call after
+# _install_docker.
+_setup_mdblist_sidecar() {
+    _mdblist_on || {
+        echo_info "MDBList catalog sidecar disabled (REMUX_MDBLIST=${mdblist_enabled})"
+        return 0
+    }
 
+    local staged=""
+    [[ -f "${mdblist_app}/.remux_commit" ]] && staged="$(cat "${mdblist_app}/.remux_commit" 2>/dev/null)"
+
+    if [[ "$staged" == "$mdblist_src_commit" && -d "${mdblist_app}/node_modules" ]]; then
+        echo_info "MDBList addon already staged at pinned commit — skipping fetch"
+    else
+        echo_progress_start "Fetching MDBList catalog addon (${mdblist_src_repo}@${mdblist_src_commit:0:10})"
+        rm -rf "${mdblist_app}"
+        mkdir -p "${mdblist_app}"
+
+        local tarball
+        tarball=$(mktemp /tmp/remux-mdblist-XXXXXX.tar.gz)
+        if ! curl -fsSL "https://github.com/${mdblist_src_repo}/archive/${mdblist_src_commit}.tar.gz" -o "$tarball" >>"$log" 2>&1; then
+            rm -f "$tarball"
+            echo_error "Failed to download MDBList addon source"
+            exit 1
+        fi
+        # Strip the top-level <repo>-<commit>/ directory from the archive
+        if ! tar -xzf "$tarball" -C "${mdblist_app}" --strip-components=1 >>"$log" 2>&1; then
+            rm -f "$tarball"
+            echo_error "Failed to extract MDBList addon source"
+            exit 1
+        fi
+        rm -f "$tarball"
+        echo_progress_done "MDBList addon source staged"
+
+        echo_progress_start "Installing MDBList addon dependencies"
+        docker run --rm -v "${mdblist_app}:/app" -w /app "$mdblist_node_image" \
+            npm install --omit=dev --no-audit --no-fund >>"$log" 2>&1 || {
+            echo_error "Failed to install MDBList addon dependencies"
+            exit 1
+        }
+        echo "$mdblist_src_commit" >"${mdblist_app}/.remux_commit"
+        echo_progress_done "MDBList addon dependencies installed"
+    fi
+
+    chown -R "${user}:${user}" "$mdblist_dir"
+}
+
+# ==============================================================================
+# Docker Compose Generation
+# ==============================================================================
+# Installer-owned artifact — always regenerated from these variables (never
+# hand-edited), so install and update converge on the same file. Emits the
+# remux service plus, when enabled, the MDBList sidecar on the same network.
+_write_compose() {
     local uid gid
     uid=$(id -u "$user")
     gid=$(id -g "$user")
-
-    swizdb set "${app_name}/port" "$app_port"
-    swizdb set "${app_name}/channel" "$app_channel"
-
-    echo_progress_start "Generating Docker Compose configuration"
 
     # Resource limits (override via env vars). Remux bundles jellyfin-ffmpeg
     # and may transcode, so give it the same headroom as other media apps.
@@ -471,9 +549,58 @@ services:
       start_period: 30s
 COMPOSE
 
+    # MDBList → Stremio catalog sidecar. Reachable only on the compose network
+    # at http://${mdblist_service_name}:${mdblist_port}; never host-published.
+    # Manifest route: /{listId}/{apikey}/manifest.json
+    if _mdblist_on; then
+        cat >>"${app_dir}/docker-compose.yml" <<COMPOSE
+
+  ${mdblist_service_name}:
+    image: ${mdblist_node_image}
+    container_name: ${mdblist_container}
+    restart: unless-stopped
+    user: "${uid}:${gid}"
+    working_dir: /app
+    command: ["node", "index.js"]
+    environment:
+      - PORT=${mdblist_port}
+    volumes:
+      - ${mdblist_app}:/app:ro
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:${mdblist_port}/manifest.json"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+COMPOSE
+    fi
+
     chmod 644 "${app_dir}/docker-compose.yml"
     chown root:root "${app_dir}/docker-compose.yml"
+}
 
+# ==============================================================================
+# App Installation
+# ==============================================================================
+_install_remux() {
+    mkdir -p "$app_datadir"
+    chown -R "${user}:${user}" "$app_dir"
+
+    swizdb set "${app_name}/port" "$app_port"
+    swizdb set "${app_name}/channel" "$app_channel"
+
+    # Stage the MDBList sidecar source/deps before compose brings it up
+    _setup_mdblist_sidecar
+
+    echo_progress_start "Generating Docker Compose configuration"
+    _write_compose
     echo_progress_done "Docker Compose configuration generated"
 
     echo_progress_start "Pulling ${app_pretty} Docker image"
@@ -711,10 +838,17 @@ _post_install_info() {
     echo ""
     echo_info "First run: open the web UI and create the admin account, then add"
     echo_info "sources via the admin dashboard:"
-    echo_info "  • Local files:  /mnt/symlinks/... (mounted read-only)"
     echo_info "  • WebDAV:       point at zurg/nzbdav WebDAV endpoints"
     echo_info "  • Stremio addons and torrents as desired"
+    echo_info "  (Note: opendal-local CANNOT index /mnt/symlinks — the video files"
+    echo_info "   are symlinks and its scanner skips them; use MDBList catalogs below.)"
     echo ""
+    if _mdblist_on; then
+        echo_info "MDBList catalog sidecar is running (http://${mdblist_service_name}:${mdblist_port},"
+        echo_info "compose-network only). After signing in, add curated lists with:"
+        echo_info "  REMUX_MDBLIST_APIKEY=<key> bash $0 --add-mdblist <listId>[,<listId>...]"
+        echo ""
+    fi
     echo_info "Jellyfin-compatible clients (Infuse, Swiftfin, ...) connect to:"
     echo_info "  https://${app_domain}"
     echo ""
@@ -734,16 +868,15 @@ _update_remux() {
 
     echo_info "Updating ${app_pretty}... (channel: ${app_channel})"
 
-    # Sync release channel + image tag (honours --latest / persisted channel)
+    # Sync release channel (honours --latest / persisted channel)
     swizdb set "${app_name}/channel" "$app_channel" 2>/dev/null || true
-    if [[ -f "${app_dir}/docker-compose.yml" ]]; then
-        local _cur_img
-        _cur_img=$(grep -E "^[[:space:]]*image:" "${app_dir}/docker-compose.yml" | head -1 | sed -E 's/^[[:space:]]*image:[[:space:]]*//')
-        if [[ -n "$app_image" && "$_cur_img" != "$app_image" ]]; then
-            echo_info "Switching image: ${_cur_img:-?} -> ${app_image}"
-            sed -i -E "s|^([[:space:]]*image:[[:space:]]*).*|\\1${app_image}|" "${app_dir}/docker-compose.yml"
-        fi
-    fi
+
+    # Restage the sidecar (picks up a bumped pinned commit) and fully regenerate
+    # the compose file from current variables. Regenerating — rather than sed-
+    # patching the image line — means the image tag (channel switch) AND the
+    # MDBList sidecar service both land, even for installs predating the sidecar.
+    _setup_mdblist_sidecar
+    _write_compose
 
     echo_progress_start "Pulling latest ${app_pretty} image"
     _verbose "Running: docker compose -f ${app_dir}/docker-compose.yml pull"
@@ -835,7 +968,7 @@ _remove_remux() {
 
     if [[ "$purgeconfig" = "true" ]]; then
         echo_progress_start "Purging configuration and data"
-        rm -rf "$app_dir"
+        rm -rf "$app_dir" "$mdblist_dir"
         echo_progress_done "All files purged"
         swizdb clear "${app_name}/owner" 2>/dev/null || true
         swizdb clear "${app_name}/port" 2>/dev/null || true
@@ -843,12 +976,136 @@ _remove_remux() {
         swizdb clear "${app_name}/channel" 2>/dev/null || true
     else
         echo_info "Data kept at: ${app_datadir}"
+        echo_info "MDBList sidecar source kept at: ${mdblist_dir}"
         rm -f "${app_dir}/docker-compose.yml"
     fi
 
     rm -f "/install/.${app_lockname}.lock"
 
     echo_success "${app_pretty} has been removed"
+    exit 0
+}
+
+# ==============================================================================
+# MDBList List Registration Helper (--add-mdblist)
+# ==============================================================================
+# Register one or more MDBList lists as Remux catalog addons pointing at the
+# local sidecar, enable their catalogs for import, and trigger a refresh.
+# List IDs and the API key are RUNTIME inputs (never stored in this script):
+#   REMUX_MDBLIST_APIKEY=<key> bash remux.sh --add-mdblist <listId>[,<listId>...]
+# Secrets are passed via 600-perm curl config files so they never hit `ps`.
+_add_mdblist_lists() {
+    local spec="${1:-}"
+
+    if [[ -z "$spec" ]]; then
+        echo_error "Usage: REMUX_MDBLIST_APIKEY=<key> $0 --add-mdblist <listId>[,<listId>...]"
+        exit 1
+    fi
+    if [[ ! -f "/install/.${app_lockname}.lock" ]]; then
+        echo_error "${app_pretty} is not installed"
+        exit 1
+    fi
+    if ! _mdblist_on; then
+        echo_error "MDBList sidecar is disabled (REMUX_MDBLIST=${mdblist_enabled}); nothing to add"
+        exit 1
+    fi
+    local apikey="${REMUX_MDBLIST_APIKEY:-}"
+    if [[ -z "$apikey" ]]; then
+        echo_error "Set REMUX_MDBLIST_APIKEY to your MDBList API key (https://mdblist.com/preferences/)"
+        exit 1
+    fi
+    command -v sqlite3 >/dev/null 2>&1 || {
+        echo_error "sqlite3 is required for --add-mdblist"
+        exit 1
+    }
+
+    # Remux admin session token (created when the admin logs in via the web UI)
+    local token
+    token=$(sqlite3 "file:${app_datadir}/db.sqlite?mode=ro" "SELECT access_token FROM devices ORDER BY rowid DESC LIMIT 1;" 2>/dev/null) || true
+    if [[ -z "$token" ]]; then
+        echo_error "No Remux session found. Open https://$(_get_domain)/, create the admin account and sign in once, then re-run."
+        exit 1
+    fi
+
+    local api="http://127.0.0.1:${app_port}"
+
+    # Auth header in a 600-perm config file so the token stays out of `ps`
+    local authcfg
+    authcfg=$(mktemp /tmp/remux-auth-XXXXXX.conf)
+    chmod 600 "$authcfg"
+    printf 'header = "X-Emby-Token: %s"\n' "$token" >"$authcfg"
+
+    local added=0 ids id
+    IFS=',' read -ra ids <<<"$spec"
+    for id in "${ids[@]}"; do
+        id="${id//[[:space:]]/}"
+        [[ -z "$id" ]] && continue
+
+        # Resolve a friendly name from MDBList (apikey hidden via config file)
+        local mdbcfg name
+        mdbcfg=$(mktemp /tmp/remux-mdb-XXXXXX.conf)
+        chmod 600 "$mdbcfg"
+        printf 'url = "https://api.mdblist.com/lists/%s/?apikey=%s"\n' "$id" "$apikey" >"$mdbcfg"
+        name=$(curl -fsS --max-time 15 --config "$mdbcfg" 2>/dev/null \
+            | python3 -c "import json,sys
+try:
+    d=json.load(sys.stdin); d=d[0] if isinstance(d,list) and d else d
+    print(d.get('name') or '')
+except Exception:
+    print('')" 2>/dev/null) || true
+        rm -f "$mdbcfg"
+        [[ -z "$name" ]] && name="MDBList ${id}"
+
+        # POST /addons — the manifest URL embeds the apikey, so build the body in
+        # a 600-perm temp file and pass with -d @file (keeps it out of `ps`).
+        local manifest body_file resp addon_id
+        manifest="http://${mdblist_service_name}:${mdblist_port}/${id}/${apikey}/manifest.json"
+        body_file=$(mktemp /tmp/remux-addon-XXXXXX.json)
+        chmod 600 "$body_file"
+        python3 -c "import json,sys
+name, url = sys.argv[1], sys.argv[2]
+print(json.dumps({'name': name, 'priority': 50,
+                  'preset': {'kind': 'stremio', 'config': {'manifest_url': url}}}))" \
+            "$name" "$manifest" >"$body_file"
+        resp=$(curl -fsS --max-time 30 --config "$authcfg" -H "Content-Type: application/json" \
+            -d @"$body_file" "${api}/addons" 2>/dev/null) || true
+        rm -f "$body_file"
+
+        addon_id=$(printf '%s' "$resp" | python3 -c "import json,sys
+try: print(json.load(sys.stdin).get('id',''))
+except Exception: print('')" 2>/dev/null) || true
+        if [[ -z "$addon_id" ]]; then
+            echo_warn "Failed to add list ${id} (${name})"
+            continue
+        fi
+
+        # Newly-added catalogs default to enabled=false; turn them on for import
+        local cats enable_body
+        cats=$(curl -fsS --max-time 20 --config "$authcfg" "${api}/addons/${addon_id}/catalogs" 2>/dev/null) || true
+        enable_body=$(printf '%s' "$cats" | python3 -c "import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(json.dumps([{'catalogId':c['catalogId'],'enabled':True} for c in d]))
+except Exception:
+    print('')" 2>/dev/null) || true
+        if [[ -n "$enable_body" ]]; then
+            curl -fsS --max-time 20 --config "$authcfg" -H "Content-Type: application/json" \
+                -o /dev/null -d "$enable_body" "${api}/addons/${addon_id}/catalogs" 2>/dev/null || true
+        fi
+
+        echo_info "Added catalog: ${name} (list ${id})"
+        added=$((added + 1))
+    done
+
+    if [[ "$added" -gt 0 ]]; then
+        echo_progress_start "Triggering library refresh"
+        curl -fsS --max-time 20 --config "$authcfg" -o /dev/null \
+            -X POST "${api}/scheduledtasks/running/RefreshLibrary" 2>/dev/null || true
+        echo_progress_done "Refresh triggered — titles populate over the next few minutes"
+    fi
+
+    rm -f "$authcfg"
+    echo_success "Added ${added} MDBList catalog(s) to ${app_pretty}"
     exit 0
 }
 
@@ -863,12 +1120,16 @@ _usage() {
     echo "  --update [--latest]     Pull image and recreate (add --latest to switch to nightly)"
     echo "  --remove [--force]      Complete removal (prompts to purge config)"
     echo "  --register-panel        Re-register with swizzin panel"
+    echo "  --add-mdblist <ids>     Register MDBList list ID(s) (comma-separated) as"
+    echo "                          catalogs (needs REMUX_MDBLIST_APIKEY + admin login)"
     echo ""
     echo "Environment variable overrides:"
     echo "  REMUX_DOMAIN            Subdomain for Remux (e.g. remux.example.com)"
     echo "  REMUX_LE_INTERACTIVE    yes|no — interactive Let's Encrypt mode (default: no)"
     echo "  REMUX_LE_HOSTNAME       Request cert for a different hostname (e.g. wildcard)"
     echo "  REMUX_USE_LATEST_TAG    true — same as --latest (nightly channel)"
+    echo "  REMUX_MDBLIST           false — skip the MDBList catalog sidecar (default: on)"
+    echo "  REMUX_MDBLIST_APIKEY    MDBList API key (used by --add-mdblist)"
     echo "  DOCKER_CPU_LIMIT        Compose CPU limit (default: 4)"
     echo "  DOCKER_MEM_LIMIT        Compose memory limit (default: 4G)"
     echo "  DOCKER_MEM_RESERVE      Compose memory reservation (default: 512M)"
@@ -909,6 +1170,9 @@ case "${1:-}" in
         ;;
     "--remove")
         _remove_remux "${2:-}"
+        ;;
+    "--add-mdblist")
+        _add_mdblist_lists "${2:-}"
         ;;
     "--register-panel")
         if [[ ! -f "/install/.${app_lockname}.lock" ]]; then
