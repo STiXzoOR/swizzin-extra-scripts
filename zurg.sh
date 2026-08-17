@@ -2,7 +2,12 @@
 set -euo pipefail
 # zurg installer
 # STiXzoOR 2025
-# Usage: bash zurg.sh [--remove [--force]] [--switch-version [free|paid]] [--update [--full] [--latest] [--verbose]] [--register-panel]
+# Usage: bash zurg.sh [--remove [--force]] [--switch-version [free|paid]] [--update [--full] [--latest] [--verbose]] [--register-panel] [--migrate-providers]
+#
+# Accounts (paid build only): the installer writes a providers: block. Supply
+# accounts non-interactively with RD_TOKEN, TORBOX_TOKEN, ALLDEBRID_TOKEN and,
+# for Usenet, ZURG_NNTP_HOST / _PORT / _TLS / _USER / _PASS / _CONNECTIONS.
+# --migrate-providers converts an existing pre-providers config in place.
 
 . /etc/swizzin/sources/globals.sh
 
@@ -370,10 +375,8 @@ _migrate_config() {
 
     echo_progress_start "Migrating configuration"
 
-    # Extract token
-    if grep -qE '^token: .+' "$config_file" 2>/dev/null; then
-        RD_TOKEN=$(grep -E '^token: ' "$config_file" | sed 's/token: //')
-    fi
+    # Extract token (handles both the providers: block and the legacy token: key)
+    RD_TOKEN=$(_read_rd_token_from_config "$config_file" 2>/dev/null) || RD_TOKEN=""
 
     # Extract port
     local config_port
@@ -396,6 +399,185 @@ _migrate_config() {
     local token_display="***${RD_TOKEN: -4}"
     echo_progress_done "Migrated: token $token_display, port $app_port, mount $app_mount_point"
     return 0
+}
+
+# Rewrite a pre-providers config into the providers: block format
+#
+# Zurg's multi-account release moved the top-level token, download_tokens and
+# strm_link_token keys inside a providers entry. Old configs still load (read as
+# a single Real-Debrid account) but the keys are deprecated.
+#
+# This is a line-based transform on purpose: config.yml carries hand-written
+# directory filters and comments that a YAML round-trip would reformat or mangle.
+# Args: $1 = config file path
+# Returns: 0 if migrated, 1 if already migrated or nothing to migrate
+_migrate_to_providers() {
+    local config_file="$1"
+
+    if [ ! -f "$config_file" ]; then
+        echo_error "Config not found: $config_file"
+        return 1
+    fi
+
+    # Idempotency: a top-level providers: key means this is already done
+    if grep -qE '^providers:' "$config_file" 2>/dev/null; then
+        echo_info "Config already uses a providers: block, nothing to migrate"
+        return 1
+    fi
+
+    if ! grep -qE '^token:' "$config_file" 2>/dev/null; then
+        echo_error "No top-level token: found in $config_file - cannot migrate"
+        return 1
+    fi
+
+    echo_progress_start "Migrating config to providers: format"
+
+    # Extract the deprecated values. Anchored at column 0 so the indented keys
+    # inside directories: filters can never match.
+    local rd_token strm_token
+    rd_token=$(sed -nE 's/^token:[[:space:]]*"?'"'"'?([^"'"'"'[:space:]#]+).*/\1/p' "$config_file" | head -1)
+    strm_token=$(sed -nE 's/^strm_link_token:[[:space:]]*"?'"'"'?([^"'"'"'[:space:]#]+).*/\1/p' "$config_file" | head -1)
+
+    if [ -z "$rd_token" ]; then
+        echo_error "Could not parse token: value from $config_file"
+        return 1
+    fi
+
+    # Collect the download_tokens list items (indented "- VALUE" lines that
+    # directly follow the key)
+    local dl_tokens
+    dl_tokens=$(awk '
+        /^download_tokens:/ { inlist = 1; next }
+        inlist && /^[[:space:]]+-[[:space:]]*[^[:space:]]/ {
+            sub(/^[[:space:]]*-[[:space:]]*/, "")
+            gsub(/["'"'"']/, "")
+            sub(/[[:space:]]*#.*/, "")
+            print
+            next
+        }
+        inlist && /^[[:space:]]*$/ { next }
+        { inlist = 0 }
+    ' "$config_file")
+
+    # Build the replacement block
+    local providers_block
+    providers_block="providers:
+  - type: realdebrid
+    token: \"${rd_token}\""
+
+    if [ -n "$dl_tokens" ]; then
+        providers_block+="
+    download_tokens:"
+        local t
+        while IFS= read -r t; do
+            [ -n "$t" ] || continue
+            providers_block+="
+      - \"${t}\""
+        done <<<"$dl_tokens"
+    fi
+
+    if [ -n "$strm_token" ]; then
+        providers_block+="
+    strm_link_token: \"${strm_token}\""
+    fi
+
+    # Rewrite: drop the three deprecated keys (and the download_tokens list
+    # items) and insert the providers block where the first one stood.
+    local tmp_config
+    tmp_config=$(mktemp)
+    awk -v block="$providers_block" '
+        function emit() { if (!inserted) { print block; inserted = 1 } }
+        /^token:/            { emit(); skiplist = 0; next }
+        /^strm_link_token:/  { emit(); skiplist = 0; next }
+        /^download_tokens:/  { emit(); skiplist = 1; next }
+        skiplist && /^[[:space:]]+-/ { next }
+        { skiplist = 0; print }
+    ' "$config_file" >"$tmp_config"
+
+    # Sanity checks before overwriting anything
+    if ! grep -qE '^providers:' "$tmp_config"; then
+        rm -f "$tmp_config"
+        echo_error "Migration produced no providers: block, aborting"
+        return 1
+    fi
+    if grep -qE '^directories:' "$config_file" && ! grep -qE '^directories:' "$tmp_config"; then
+        rm -f "$tmp_config"
+        echo_error "Migration lost the directories: section, aborting"
+        return 1
+    fi
+
+    # Keep a timestamped rollback copy next to the config
+    local backup_file
+    backup_file="${config_file}.pre-providers.$(date +%Y%m%d%H%M%S)"
+    cp -a "$config_file" "$backup_file"
+
+    cat "$tmp_config" >"$config_file"
+    rm -f "$tmp_config"
+    chown "$user":"$user" "$config_file" 2>/dev/null || true
+    chmod 600 "$config_file"
+
+    local dl_count=0
+    [ -n "$dl_tokens" ] && dl_count=$(grep -c . <<<"$dl_tokens")
+    echo_progress_done "Migrated to providers: (1 realdebrid account, $dl_count download token(s))"
+    echo_info "Previous config saved to: $backup_file"
+    return 0
+}
+
+# Warn about orphaned union overlay directories.
+#
+# The paid build mounts an rclone *union* of "data/local" and its own WebDAV
+# endpoint, so every subdirectory of data/local shows up at the mount root. One
+# that matches no configured directory appears as a permanently empty folder and
+# makes zurg log "cannot find directory <name>" every time something looks at
+# it — which is easy to miss for months.
+_check_union_overlay_dirs() {
+    local local_dir="$app_configdir/data/local"
+    local config_file="$app_configdir/config.yml"
+
+    [ -d "$local_dir" ] || return 0
+    [ -f "$config_file" ] || return 0
+
+    # Names defined under directories: (2-space indented keys, optionally quoted)
+    local configured
+    configured=$(awk '
+        /^directories:/ { indirs = 1; next }
+        /^[^[:space:]#]/ { indirs = 0 }
+        indirs && /^  ["'"'"']?[^[:space:]#][^:]*:[[:space:]]*$/ {
+            sub(/^  /, ""); sub(/:[[:space:]]*$/, "")
+            gsub(/["'"'"']/, "")
+            print
+        }
+    ' "$config_file")
+
+    local orphans=()
+    local d name
+    for d in "$local_dir"/*/; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+        # __all__, __downloads__ etc. are served by zurg itself, never orphans
+        [[ "$name" == __*__ ]] && continue
+        if ! grep -qxF "$name" <<<"$configured"; then
+            orphans+=("$name")
+        fi
+    done
+
+    [ ${#orphans[@]} -gt 0 ] || return 0
+
+    echo ""
+    echo_warn "Orphaned union overlay directories in $local_dir:"
+    for name in "${orphans[@]}"; do
+        local count
+        count=$(find "$local_dir/$name" -mindepth 1 2>/dev/null | wc -l)
+        echo_warn "  $name (${count} files) - matches no directory in config.yml"
+    done
+    echo_info "These appear as empty folders at the mount root and make zurg log"
+    echo_info "\"cannot find directory <name>\". If empty and unwanted, remove them:"
+    for name in "${orphans[@]}"; do
+        echo_info "  rmdir '$local_dir/$name'"
+    done
+    echo_info "Then drop it from the mount's cache:"
+    echo_info "  curl -X POST 127.0.0.1:<rc-port>/vfs/forget -d '{\"dir\":\"<name>\"}'"
+    echo_info "(rc port is in the rclone args: ps -eo args | grep 'rclone mount zurg')"
 }
 
 # Clean up version-specific artifacts when switching versions
@@ -513,6 +695,176 @@ _switch_version() {
     echo_info "Proceeding with $target_version version installation..."
 }
 
+# Read the existing Real-Debrid token out of a config, in either format
+# Args: $1 = config file path
+_read_rd_token_from_config() {
+    local config_file="$1"
+    [ -f "$config_file" ] || return 1
+
+    # providers: format - first token under a realdebrid entry
+    awk '
+        /^providers:/ { inproviders = 1; next }
+        /^[^[:space:]#]/ { inproviders = 0 }
+        inproviders && /^[[:space:]]*-[[:space:]]*type:[[:space:]]*realdebrid/ { inrd = 1; next }
+        inproviders && /^[[:space:]]*-[[:space:]]*type:/ { inrd = 0 }
+        inrd && /^[[:space:]]*token:/ {
+            sub(/^[[:space:]]*token:[[:space:]]*/, "")
+            gsub(/["'"'"']/, "")
+            sub(/[[:space:]]*#.*/, "")
+            print
+            exit
+        }
+    ' "$config_file" | head -1 | grep . && return 0
+
+    # Legacy pre-providers format
+    sed -nE 's/^token:[[:space:]]*"?'"'"'?([^"'"'"'[:space:]#]+).*/\1/p' "$config_file" | head -1 | grep . && return 0
+
+    return 1
+}
+
+# Build the providers: block for a fresh install.
+# Sets globals: providers_block, RD_TOKEN, nzb_provider_configured
+#
+# Env vars: RD_TOKEN, TORBOX_TOKEN, ALLDEBRID_TOKEN and, for Usenet,
+# ZURG_NNTP_HOST / _PORT / _TLS / _USER / _PASS / _CONNECTIONS.
+_collect_providers() {
+    providers_block="providers:"
+    nzb_provider_configured="false"
+    local have_provider="false"
+
+    # The free build (debridmediamanager/zurg-testing) predates multi-account
+    # support and only understands a top-level token:. Collect just that.
+    if [ "${zurg_version:-}" != "paid" ]; then
+        echo_info "Checking for Real-Debrid API token"
+        local existing_free_rd=""
+        if [ -f "$app_configdir/config.yml" ]; then
+            existing_free_rd=$(_read_rd_token_from_config "$app_configdir/config.yml" 2>/dev/null) || true
+        fi
+
+        if [ -n "${RD_TOKEN:-}" ]; then
+            echo_info "Using token from RD_TOKEN environment variable"
+        elif [ -n "$existing_free_rd" ]; then
+            RD_TOKEN="$existing_free_rd"
+            echo_info "Existing token found in config"
+        else
+            echo_query "Paste your Real-Debrid API token" "from https://real-debrid.com/apitoken"
+            read -r RD_TOKEN </dev/tty
+        fi
+
+        if [ -z "${RD_TOKEN:-}" ]; then
+            echo_error "Real-Debrid API token is required. Set RD_TOKEN or provide interactively. Cannot continue!"
+            exit 1
+        fi
+
+        if [ -n "${TORBOX_TOKEN:-}${ALLDEBRID_TOKEN:-}${ZURG_NNTP_HOST:-}" ]; then
+            echo_warn "TorBox/AllDebrid/Usenet accounts need the paid zurg build - ignoring"
+        fi
+        return 0
+    fi
+
+    echo_info "Configuring debrid / Usenet accounts"
+
+    # --- Real-Debrid -------------------------------------------------------
+    # Reuse an existing token when one is already on disk, in either format.
+    local existing_rd=""
+    if [ -f "$app_configdir/config.yml" ]; then
+        existing_rd=$(_read_rd_token_from_config "$app_configdir/config.yml" 2>/dev/null) || true
+    fi
+
+    if [ -n "${RD_TOKEN:-}" ]; then
+        echo_info "Using Real-Debrid token from RD_TOKEN environment variable"
+    elif [ -n "$existing_rd" ]; then
+        RD_TOKEN="$existing_rd"
+        echo_info "Reusing Real-Debrid token found in existing config"
+    elif [ -n "${TORBOX_TOKEN:-}${ALLDEBRID_TOKEN:-}${ZURG_NNTP_HOST:-}" ]; then
+        # Another provider was supplied non-interactively, so RD is optional
+        echo_info "No RD_TOKEN set; skipping Real-Debrid account"
+        RD_TOKEN=""
+    else
+        echo_query "Paste your Real-Debrid API token" "from https://real-debrid.com/apitoken (blank to skip)"
+        read -r RD_TOKEN </dev/tty
+    fi
+
+    if [ -n "${RD_TOKEN:-}" ]; then
+        providers_block+="
+  - type: realdebrid
+    token: \"${RD_TOKEN}\""
+        have_provider="true"
+    fi
+
+    # --- TorBox ------------------------------------------------------------
+    if [ -z "${TORBOX_TOKEN:-}" ] && [ -z "${ZURG_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+        if ask "Add a TorBox account?" N; then
+            echo_query "Paste your TorBox API key" "from https://torbox.app/settings"
+            read -r TORBOX_TOKEN </dev/tty
+        fi
+    fi
+    if [ -n "${TORBOX_TOKEN:-}" ]; then
+        providers_block+="
+  - type: torbox
+    token: \"${TORBOX_TOKEN}\""
+        have_provider="true"
+        echo_info "Added TorBox account"
+    fi
+
+    # --- AllDebrid ---------------------------------------------------------
+    if [ -z "${ALLDEBRID_TOKEN:-}" ] && [ -z "${ZURG_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+        if ask "Add an AllDebrid account?" N; then
+            echo_query "Paste your AllDebrid API key" "from https://alldebrid.com/apikeys"
+            read -r ALLDEBRID_TOKEN </dev/tty
+        fi
+    fi
+    if [ -n "${ALLDEBRID_TOKEN:-}" ]; then
+        providers_block+="
+  - type: alldebrid
+    token: \"${ALLDEBRID_TOKEN}\""
+        have_provider="true"
+        echo_info "Added AllDebrid account"
+    fi
+
+    # --- Usenet ------------------------------------------------------------
+    # Not a debrid service: .nzb files dropped into nzbs/ are streamed straight
+    # from the news server, so it authenticates with NNTP credentials.
+    if [ -z "${ZURG_NNTP_HOST:-}" ] && [ -z "${ZURG_NONINTERACTIVE:-}" ] && [ -t 0 ]; then
+        if ask "Add a Usenet (NNTP) account?" N; then
+            echo_query "News server hostname" "e.g. news.eweka.nl"
+            read -r ZURG_NNTP_HOST </dev/tty
+            echo_query "News server username" ""
+            read -r ZURG_NNTP_USER </dev/tty
+            echo_query "News server password" ""
+            read -rs ZURG_NNTP_PASS </dev/tty
+            echo "" >/dev/tty
+            echo_query "Concurrent connections your plan allows" "[8]"
+            read -r ZURG_NNTP_CONNECTIONS </dev/tty
+        fi
+    fi
+    if [ -n "${ZURG_NNTP_HOST:-}" ]; then
+        local nntp_tls="${ZURG_NNTP_TLS:-true}"
+        local nntp_port="${ZURG_NNTP_PORT:-}"
+        if [ -z "$nntp_port" ]; then
+            if [[ "${nntp_tls,,}" == "true" ]]; then nntp_port=563; else nntp_port=119; fi
+        fi
+        providers_block+="
+  - type: nzb
+    nntp:
+      host: \"${ZURG_NNTP_HOST}\"
+      port: ${nntp_port}
+      tls: ${nntp_tls,,}
+      username: \"${ZURG_NNTP_USER:-}\"
+      password: \"${ZURG_NNTP_PASS:-}\"
+      connections: ${ZURG_NNTP_CONNECTIONS:-8}"
+        have_provider="true"
+        nzb_provider_configured="true"
+        echo_info "Added Usenet account ($ZURG_NNTP_HOST:$nntp_port)"
+    fi
+
+    if [ "$have_provider" != "true" ]; then
+        echo_error "At least one account is required (Real-Debrid, TorBox, AllDebrid or Usenet)."
+        echo_error "Set RD_TOKEN / TORBOX_TOKEN / ALLDEBRID_TOKEN / ZURG_NNTP_HOST, or provide one interactively."
+        exit 1
+    fi
+}
+
 _install_zurg() {
     if [ ! -d "$app_configdir" ]; then
         mkdir -p "$app_configdir"
@@ -537,25 +889,7 @@ _install_zurg() {
 
     echo_info "Installing zurg $zurg_version version"
 
-    # Prompt for Real-Debrid token if not already configured
-    echo_info "Checking for Real-Debrid API token"
-    if [ ! -f "$app_configdir/config.yml" ] || ! grep -qE '^token: .+' "$app_configdir/config.yml" 2>/dev/null; then
-        # Check for environment variable first
-        if [ -n "${RD_TOKEN:-}" ]; then
-            echo_info "Using token from RD_TOKEN environment variable"
-        else
-            echo_query "Paste your Real-Debrid API token" "from https://real-debrid.com/apitoken"
-            read -r RD_TOKEN </dev/tty
-
-            if [ -z "$RD_TOKEN" ]; then
-                echo_error "Real-Debrid API token is required. Set RD_TOKEN or provide interactively. Cannot continue!"
-                exit 1
-            fi
-        fi
-    else
-        echo_info "Existing token found in config"
-        RD_TOKEN=$(grep -E '^token: ' "$app_configdir/config.yml" | sed 's/token: //')
-    fi
+    _collect_providers
 
     case "$(_os_arch)" in
         "amd64") arch='linux-amd64' ;;
@@ -772,7 +1106,11 @@ _install_zurg() {
 # Documentation: https://github.com/debridmediamanager/zurg
 
 zurg: v1
-token: "${RD_TOKEN}"
+
+# Debrid / Usenet accounts. Every account is one entry in this list; add more
+# entries to run Real-Debrid, TorBox, AllDebrid and Usenet side by side. Each
+# one also gets a __<name>__ directory at the mount root that pins reads to it.
+${providers_block}
 
 # Network & Server Configuration
 host: "127.0.0.1"
@@ -880,6 +1218,12 @@ RCLONE
 
         chown -R "$user":"$user" "$rclone_configdir"
         chmod 600 "$rclone_configdir/rclone.conf"
+    fi
+
+    # A Usenet provider streams .nzb files dropped into nzbs/ next to the config
+    if [ "${nzb_provider_configured:-false}" = "true" ]; then
+        mkdir -p "$app_configdir/nzbs"
+        chown "$user":"$user" "$app_configdir/nzbs"
     fi
 
     chown -R "$user":"$user" "$app_configdir"
@@ -1351,11 +1695,70 @@ _upgrade_binary_zurg() {
     echo_progress_done "Services restarted"
 
     echo_success "Zurg binary updated ($zurg_version version)"
+
+    # Nudge toward the providers: format. The old keys still load, but they are
+    # deprecated and new account features are only reachable from providers.
+    if [ -f "$app_configdir/config.yml" ] \
+        && ! grep -qE '^providers:' "$app_configdir/config.yml" 2>/dev/null \
+        && grep -qE '^token:' "$app_configdir/config.yml" 2>/dev/null; then
+        echo ""
+        echo_warn "Config still uses the deprecated top-level token: key"
+        echo_info "Zurg reads it as a single Real-Debrid account, but multi-account"
+        echo_info "and Usenet support need the providers: block. To convert it:"
+        echo_info "  bash zurg.sh --migrate-providers"
+    fi
+
+    if [ "$zurg_version" = "paid" ]; then
+        _check_union_overlay_dirs
+    fi
 }
 
 # Handle --remove flag
 if [ "${1:-}" = "--remove" ]; then
     _remove_zurg "${2:-}"
+fi
+
+# Handle --migrate-providers flag
+if [ "${1:-}" = "--migrate-providers" ]; then
+    if [ ! -f "$app_configdir/config.yml" ]; then
+        echo_error "No config found at $app_configdir/config.yml"
+        exit 1
+    fi
+
+    # The free build has no providers: support - migrating would break it
+    _mig_version=$(swizdb get "zurg/version" 2>/dev/null) || _mig_version=""
+    if [ -z "$_mig_version" ]; then
+        _mig_version=$(_detect_zurg_version_from_config) || _mig_version=""
+    fi
+    if [ "$_mig_version" = "free" ]; then
+        echo_error "The free zurg build does not support the providers: block."
+        echo_error "Switch to the paid build first: bash zurg.sh --switch-version paid"
+        exit 1
+    fi
+
+    if _migrate_to_providers "$app_configdir/config.yml"; then
+        if systemctl is-active --quiet "$app_servicefile" 2>/dev/null; then
+            # ZURG_MIGRATE_RESTART=true|false skips the prompt for automation
+            _do_restart="${ZURG_MIGRATE_RESTART:-}"
+            _do_restart="${_do_restart,,}"
+            if [ -z "$_do_restart" ]; then
+                if ask "Restart zurg now to load the migrated config?" Y; then
+                    _do_restart="true"
+                else
+                    _do_restart="false"
+                fi
+            fi
+
+            if [[ "$_do_restart" == "true" || "$_do_restart" == "1" || "$_do_restart" == "yes" ]]; then
+                echo_progress_start "Restarting zurg"
+                systemctl restart "$app_servicefile"
+                echo_progress_done "Zurg restarted"
+            else
+                echo_info "Restart zurg when ready: systemctl restart $app_servicefile"
+            fi
+        fi
+    fi
+    exit 0
 fi
 
 # Handle --register-panel flag
@@ -1502,11 +1905,16 @@ _nginx_zurg
 
 # Store configuration in swizdb for other scripts (decypharr)
 swizdb set "zurg/mount_point" "$app_mount_point"
-swizdb set "zurg/api_key" "$RD_TOKEN"
 swizdb set "zurg/version" "$zurg_version"
 
-# Update decypharr if installed
-_update_decypharr_config "$app_mount_point" "$RD_TOKEN"
+# Decypharr is Real-Debrid specific, so only wire it up when an RD account
+# exists - a TorBox/AllDebrid/Usenet-only install has no token to hand over.
+if [ -n "${RD_TOKEN:-}" ]; then
+    swizdb set "zurg/api_key" "$RD_TOKEN"
+    _update_decypharr_config "$app_mount_point" "$RD_TOKEN"
+else
+    echo_info "No Real-Debrid account configured; skipping Decypharr integration"
+fi
 
 _load_panel_helper
 if command -v panel_register_app >/dev/null 2>&1; then

@@ -10,10 +10,14 @@ set -euo pipefail
 #
 # Pinned to STiXzoOR/decypharr fork tag DECYPHARR_FORK_TAG (below) — the fork
 # tracks upstream sirrobot01/decypharr + a small set of Swizzin-specific
-# patches (URLBase reverse-proxy fix, DebridLink nil-map fix). Bump
-# DECYPHARR_FORK_TAG when a new upstream release is re-patched.
+# patches (URLBase reverse-proxy fix, DebridLink nil-map fix, mount scan root
+# resolution for zurg-style folder layouts). Bump DECYPHARR_FORK_TAG when a new
+# upstream release is re-patched.
+#
+# v2.5.1 = upstream v2.5 + those patches. The usenet cache_test fix carried in
+# v2.3.1 was dropped: upstream removed that file in the v2.5 streaming rewrite.
 
-DECYPHARR_FORK_TAG="v2.3.1"
+DECYPHARR_FORK_TAG="v2.5.1"
 DECYPHARR_NGINX_SCHEMA=2
 
 . /etc/swizzin/sources/globals.sh

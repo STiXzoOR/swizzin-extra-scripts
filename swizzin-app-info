@@ -398,7 +398,9 @@ APP_CONFIGS = {
         "format": "yaml",
         "keys": {
             "port": "port",
-            "token": "token",
+            # providers: block first (current), top-level token: second (legacy
+            # pre-multi-account configs, which zurg still loads)
+            "token": (["providers", "token"], "token"),
         },
     },
     "organizr": {
@@ -805,21 +807,27 @@ def parse_yaml_config(path: str, keys: Dict[str, Any]) -> Dict[str, Any]:
                     if isinstance(data.get(current_section), dict):
                         data[current_section][key] = value
 
-        # Extract requested keys
-        for result_key, yaml_keys in keys.items():
-            if isinstance(yaml_keys, list):
-                # Nested key like ["general", "port"]
+        def lookup(spec):
+            """Resolve one key spec: str = top-level, list = nested path."""
+            if isinstance(spec, list):
                 value = data
-                for k in yaml_keys:
+                for k in spec:
                     if isinstance(value, dict):
                         value = value.get(k)
                     else:
-                        value = None
-                        break
+                        return None
+                return value
+            return data.get(spec)
+
+        # Extract requested keys. A tuple means "try these in order" — used
+        # where a config format changed and both layouts must keep working.
+        for result_key, yaml_keys in keys.items():
+            candidates = yaml_keys if isinstance(yaml_keys, tuple) else (yaml_keys,)
+            for candidate in candidates:
+                value = lookup(candidate)
                 if value:
                     result[result_key] = value
-            elif yaml_keys in data:
-                result[result_key] = data[yaml_keys]
+                    break
     except Exception as e:
         result["_error"] = str(e)
     return result
