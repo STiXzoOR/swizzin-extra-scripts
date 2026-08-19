@@ -54,7 +54,11 @@ The consequence worth knowing: **every subdirectory of `data/local/` appears at 
 ERROR router Error handling group directory <name>: cannot find directory <name>
 ```
 
-This is easy to miss — the folder looks like a harmless empty directory, and the errors only fire when something happens to stat it. `bash zurg.sh --update` now reports orphaned overlay directories. To clear one by hand:
+This is easy to miss — the folder looks like a harmless empty directory, and the errors only fire when something happens to stat it. `bash zurg.sh --update` reports orphaned overlay directories.
+
+**`movies/` and `shows/` are scaffolding zurg recreates on every start**, whatever your `directories:` block is actually called. If your config names a directory `series` rather than `shows`, an empty `shows` reappears at the mount root after each restart and `rmdir` will not make it stick — this is cosmetic and not worth fighting. Only an overlay directory that *holds files* zurg cannot serve, or one with some other name, is worth acting on. The `--update` check ignores empty `movies`/`shows` for exactly this reason.
+
+To clear a genuine orphan:
 
 ```bash
 rmdir ~/.config/zurg/data/local/<name>          # only succeeds if truly empty
@@ -145,7 +149,7 @@ The paid build needs GitHub auth for the private repo: `GITHUB_TOKEN`, an authen
 - **Restarting zurg cycles the mount.** Anything mid-scan can see the library briefly vanish. With Plex, set `plex_database_path` so zurg snapshots the database before touching the mount; that feature is Plex-only and needs Plex on the same host.
 - **`get_downloads_limit: 0` means "cache nothing"**, not "no limit" — `-1` (or omitting the key) is unlimited. A `0` carried over from an old config silently empties `__downloads__`.
 - **D-state readers wedge the unmount.** Processes stuck in uninterruptible sleep on the FUSE mount (typically arr `ffprobe`) survive kills and can leave `Transport endpoint is not connected` on restart. Recover with `fusermount -uz /mnt/zurg` then restart zurg.
-- **An empty folder at the mount root is not cosmetic.** It means an orphaned `data/local/` overlay directory — see the union section above. Renaming a directory in `config.yml` (e.g. `shows` → `series`) without renaming its `data/local/` counterpart is how these are created.
+- **An empty folder at the mount root** is an orphaned `data/local/` overlay directory — see the union section above. An empty `movies`/`shows` is zurg's own scaffolding and returns after every restart; anything else, or anything holding files, is worth clearing.
 - **Upgrading re-imports the cache once.** Torrents cached in the pre-provider format have no provider stamp and are re-imported on the next refresh; archive releases re-match once.
 - The free build has no `providers:` support — switch with `--switch-version paid` first.
 

@@ -550,15 +550,24 @@ _check_union_overlay_dirs() {
     ' "$config_file")
 
     local orphans=()
-    local d name
+    local d name file_count
     for d in "$local_dir"/*/; do
         [ -d "$d" ] || continue
         name=$(basename "$d")
         # __all__, __downloads__ etc. are served by zurg itself, never orphans
         [[ "$name" == __*__ ]] && continue
-        if ! grep -qxF "$name" <<<"$configured"; then
-            orphans+=("$name")
+        grep -qxF "$name" <<<"$configured" && continue
+
+        # zurg re-creates movies/ and shows/ under data/local on every start,
+        # regardless of what the directories: block is actually called. Removing
+        # an empty one is pointless - it is back on the next restart - so only
+        # flag these two when they hold files that would surface in the mount.
+        file_count=$(find "$local_dir/$name" -mindepth 1 2>/dev/null | wc -l)
+        if [[ "$name" == "movies" || "$name" == "shows" ]] && [ "$file_count" -eq 0 ]; then
+            continue
         fi
+
+        orphans+=("$name")
     done
 
     [ ${#orphans[@]} -gt 0 ] || return 0
@@ -570,14 +579,17 @@ _check_union_overlay_dirs() {
         count=$(find "$local_dir/$name" -mindepth 1 2>/dev/null | wc -l)
         echo_warn "  $name (${count} files) - matches no directory in config.yml"
     done
-    echo_info "These appear as empty folders at the mount root and make zurg log"
-    echo_info "\"cannot find directory <name>\". If empty and unwanted, remove them:"
+    echo_info "These surface at the mount root and make zurg log"
+    echo_info "\"cannot find directory <name>\" whenever something looks at them."
+    echo_info "Move the contents somewhere zurg serves, then remove the directory:"
     for name in "${orphans[@]}"; do
         echo_info "  rmdir '$local_dir/$name'"
     done
-    echo_info "Then drop it from the mount's cache:"
+    echo_info "Then drop it from the mount's cache (forget the ENTRY, not the root):"
     echo_info "  curl -X POST 127.0.0.1:<rc-port>/vfs/forget -d '{\"dir\":\"<name>\"}'"
     echo_info "(rc port is in the rclone args: ps -eo args | grep 'rclone mount zurg')"
+    echo_info "Note: an empty movies/ or shows/ is zurg scaffolding - it is"
+    echo_info "recreated on every restart and is not worth removing."
 }
 
 # Clean up version-specific artifacts when switching versions
