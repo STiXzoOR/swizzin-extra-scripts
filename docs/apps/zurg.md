@@ -98,6 +98,28 @@ providers:
 
 Useful per-entry keys: `name` (defaults to `type`; required when two entries share a type), `disabled: true`, and `watchlist: true` (at most one entry, never `nzb`).
 
+### More than one news server
+
+A single `nzb` entry is the only one allowed — extra news accounts go under that entry's `nntp.servers`, where they serve the same library rather than a second copy of it:
+
+```yaml
+      servers:
+        - name: "backup-host"
+          host: "news.example.org"
+          port: 563
+          tls: true
+          username: "user"
+          password: "pass"
+          connections: 8
+          priority: 0      # lowest asked first; equals load-share, preferring a free connection
+          backup: false    # true = metered block account, asked only after every
+                           # primary answers "no such article" (a busy primary is waited for)
+```
+
+This matters more than it looks: retention is per-provider, and without a second account the only way to recover a dead article is PAR2 — which costs a read of the **entire release** rather than one article.
+
+**Budget connections against your other Usenet clients.** These are the same accounts your downloader uses, and the limit is per-plan concurrent connections, not per-application. Two clients each configured to a plan's full allowance will get connections refused. If zurg's nzb path is a manual/rescue route rather than the main pipeline, give it a small slice and leave the downloader's allowance alone.
+
 A release held by several accounts is one library entry with a copy per account, so a second account is redundancy rather than duplication — reads fail over to the next healthy copy instead of triggering repair.
 
 ### Supplying accounts non-interactively
