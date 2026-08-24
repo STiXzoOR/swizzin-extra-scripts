@@ -117,7 +117,7 @@ _verbose() {
 # pulling.
 
 NZBDAV_FORK_REPO="infinidysk/infinidysk"
-NZBDAV_FALLBACK_TAG="v1.0.1"
+NZBDAV_FALLBACK_TAG="v1.2.4"
 if [[ -z "${NZBDAV_FORK_TAG:-}" ]]; then
     NZBDAV_FORK_TAG=$(curl -sf --max-time 10 "https://api.github.com/repos/${NZBDAV_FORK_REPO}/releases/latest"         | grep -oP '"tag_name":\s*"\K[^"]+' || true)
     NZBDAV_FORK_TAG="${NZBDAV_FORK_TAG:-${NZBDAV_FALLBACK_TAG}}"
@@ -810,6 +810,23 @@ _install_fresh() {
 # ==============================================================================
 # Update
 # ==============================================================================
+# Copy the config dir for rollback: everything real-copied except blobs/, which
+# is hardlinked (write-once files; near-zero disk and seconds instead of minutes).
+_backup_configdir() {
+    local src="$1" dest="$2"
+    mkdir -p "$dest" || return 1
+    local entry
+    for entry in "$src"/* "$src"/.[!.]*; do
+        [[ -e "$entry" ]] || continue
+        if [[ "$(basename "$entry")" == "blobs" && -d "$entry" ]]; then
+            cp -al "$entry" "$dest/blobs" || return 1
+        else
+            cp -a "$entry" "$dest/" || return 1
+        fi
+    done
+    return 0
+}
+
 _update_nzbdav() {
     if [[ ! -f "/install/.${app_lockname}.lock" ]]; then
         echo_error "${app_pretty} is not installed"
@@ -818,9 +835,15 @@ _update_nzbdav() {
 
     echo_info "Updating ${app_pretty}..."
 
-    # Back up config before update (keep only the newest backup)
+    # Back up config before update (keep only the newest backup).
+    # blobs/ holds the NZB segment metadata and is nearly all of the config dir
+    # on a mature install (tens of GB). It is also write-once: an upgrade never
+    # rewrites a blob, and the image swap doesn't touch the volume at all. A
+    # real copy would double the config dir on disk and take many minutes for
+    # nothing, so hardlink it and real-copy the rest (db.sqlite is written in
+    # place, so it must be a true copy for a rollback to work).
     local backup_dir="${app_configdir}.bak.$(date +%Y%m%d%H%M%S)"
-    if cp -a "${app_configdir}" "$backup_dir" 2>/dev/null; then
+    if _backup_configdir "${app_configdir}" "$backup_dir"; then
         echo_info "Config backed up to ${backup_dir}"
         find "$(dirname "${app_configdir}")" -maxdepth 1 -type d \
             -name "$(basename "${app_configdir}").bak.*" \
