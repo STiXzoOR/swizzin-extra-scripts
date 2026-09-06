@@ -112,7 +112,7 @@ Debrid streaming proxy with store management. Provides Torznab API for Prowlarr 
 
 ## MediaFusion
 
-Stremio/Kodi universal add-on with native Torznab API for Prowlarr. 5-container stack.
+Stremio/Kodi universal add-on with native Torznab API for Prowlarr. 5-container stack (v6, Rust).
 
 ### File Layout
 
@@ -127,12 +127,32 @@ Stremio/Kodi universal add-on with native Torznab API for Prowlarr. 5-container 
 
 ### Features
 
-- 5 containers: app, worker (Dramatiq), PostgreSQL, Redis, Browserless (headless Chrome)
-- Main container uses entrypoint sed to patch gunicorn bind port dynamically
-- `HOST_URL` env var set from Organizr domain detection chain
-- Comprehensive `sub_filter` rules for SPA JavaScript path rewriting
+- 5 containers: app, worker, PostgreSQL, Redis, TRAWL (browser pool)
+- Pinned to `mhdzumair/mediafusion:6.1.5` — the Rust rewrite. Do not track `:latest`.
+- API port comes from `STREAM_RS_PORT`; the worker runs `/usr/local/bin/mediafusion-worker`
+- `HOST_URL` / `POSTER_HOST_URL` set from the Organizr domain detection chain
+- `sub_filter` rules rewrite SPA paths, including **backtick/template-literal**
+  variants (`` `/api/v1${...} ``) that the v6 React bundle emits
 - Custom Prowlarr Cardigann indexer definition deployed from `resources/prowlarr/mediafusion.yml`
 - Torznab and manifest endpoints bypass auth for Prowlarr/Stremio access
+
+### Upgrading from v5 (Python) to v6 (Rust)
+
+There is **no in-place migration**. v6 recognises Alembic revision `d826df80371b`;
+any other revision makes it replay every sqlx migration, and because Postgres
+`CREATE TYPE ... AS ENUM` has no `IF NOT EXISTS` guard it aborts with
+`type "contributionstatus" already exists` (SQLSTATE 42710) and crash-loops.
+A failed attempt commits nothing, so it is safe to try and roll back.
+
+Upgrade by pointing `POSTGRES_URI` at a **new, empty database** and letting
+migrations build the schema from scratch. Keep the old database until the new
+one is populated — that is the rollback path.
+
+TRAWL (`ghcr.io/germondai/trawl`) replaces Browserless. A plain FlareSolverr —
+Byparr included — is **not** sufficient: it solves the challenge, but lacks
+TRAWL's session API, so AJAX magnet extraction fails with
+`{"success":false,"error":"Invalid session"}`. TRAWL shares the stack's Redis on
+database 1 (MediaFusion itself uses database 0).
 
 ---
 

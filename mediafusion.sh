@@ -133,10 +133,13 @@ else
     redis_port=$(port 10000 12000)
 fi
 
-if _existing_browser_port="$(swizdb get "${app_name}/browser_port" 2>/dev/null)" && [[ -n "$_existing_browser_port" ]]; then
-    browser_port="$_existing_browser_port"
+if _existing_trawl_port="$(swizdb get "${app_name}/trawl_port" 2>/dev/null)" && [[ -n "$_existing_trawl_port" ]]; then
+    trawl_port="$_existing_trawl_port"
+elif _existing_browser_port="$(swizdb get "${app_name}/browser_port" 2>/dev/null)" && [[ -n "$_existing_browser_port" ]]; then
+    # pre-v6 installs allocated this for browserless; TRAWL reuses the port
+    trawl_port="$_existing_browser_port"
 else
-    browser_port=$(port 10000 12000)
+    trawl_port=$(port 10000 12000)
 fi
 
 # ==============================================================================
@@ -226,7 +229,7 @@ _install_mediafusion() {
     swizdb set "${app_name}/port" "$app_port"
     swizdb set "${app_name}/pg_port" "$pg_port"
     swizdb set "${app_name}/redis_port" "$redis_port"
-    swizdb set "${app_name}/browser_port" "$browser_port"
+    swizdb set "${app_name}/trawl_port" "$trawl_port"
 
     # ==========================================================================
     # Auto-detect local services (Prowlarr, Jackett, Zilean)
@@ -276,7 +279,7 @@ _install_mediafusion() {
             zl_port=$(grep -oP 'http://127\.0\.0\.1:\K\d+' /opt/zilean/docker-compose.yml 2>/dev/null | head -1)
         fi
         if [[ -n "$zl_port" ]]; then
-            zilean_env="      zilean_url: \"http://127.0.0.1:${zl_port}\""
+            zilean_env="      ZILEAN_URL: \"http://127.0.0.1:${zl_port}\""
             detected_zilean=true
             echo_info "Detected Zilean on port ${zl_port}"
         fi
@@ -285,13 +288,13 @@ _install_mediafusion() {
     # ==========================================================================
     # Interactive: Scraper/Indexer Selection
     # ==========================================================================
-    # Env var override for unattended install: MEDIAFUSION_SCRAPERS="prowlarr,zilean,yts,bt4g"
+    # Env var override for unattended install: MEDIAFUSION_SCRAPERS="prowlarr,zilean,public,dmm"
     local scrap_prowlarr="False" scrap_jackett="False" scrap_zilean="False"
-    local scrap_torrentio="False" scrap_yts="True" scrap_bt4g="True"
+    local scrap_torrentio="False" scrap_public="True" scrap_dmm="False"
 
     if [[ -n "${MEDIAFUSION_SCRAPERS:-}" ]]; then
         # Unattended: parse comma-separated list
-        scrap_yts="False"; scrap_bt4g="False"
+        scrap_public="False"
         IFS=',' read -ra _scrapers <<< "$MEDIAFUSION_SCRAPERS"
         for s in "${_scrapers[@]}"; do
             case "${s,,}" in
@@ -299,8 +302,8 @@ _install_mediafusion() {
                 jackett)   scrap_jackett="True" ;;
                 zilean)    scrap_zilean="True" ;;
                 torrentio) scrap_torrentio="True" ;;
-                yts)       scrap_yts="True" ;;
-                bt4g)      scrap_bt4g="True" ;;
+                public|public_indexers) scrap_public="True" ;;
+                dmm|dmm_hashlist)      scrap_dmm="True" ;;
             esac
         done
     else
@@ -344,16 +347,14 @@ _install_mediafusion() {
             scrap_torrentio="True"
         fi
 
-        if ask "Enable YTS scraper?" Y; then
-            scrap_yts="True"
+        if ask "Enable built-in public indexers (1337x, TPB, YTS, ...)?" Y; then
+            scrap_public="True"
         else
-            scrap_yts="False"
+            scrap_public="False"
         fi
 
-        if ask "Enable BT4G scraper?" Y; then
-            scrap_bt4g="True"
-        else
-            scrap_bt4g="False"
+        if ask "Enable DMM hashlist ingestion?" N; then
+            scrap_dmm="True"
         fi
     fi
 
@@ -391,40 +392,36 @@ _install_mediafusion() {
 
     # Build scraper env block
     local scraper_env=""
-    scraper_env+="      is_scrap_from_prowlarr: \"${scrap_prowlarr}\"
+    scraper_env+="      IS_SCRAP_FROM_PROWLARR: \"${scrap_prowlarr,,}\"
 "
-    scraper_env+="      is_scrap_from_jackett: \"${scrap_jackett}\"
+    scraper_env+="      IS_SCRAP_FROM_JACKETT: \"${scrap_jackett,,}\"
 "
-    scraper_env+="      is_scrap_from_zilean: \"${scrap_zilean}\"
+    scraper_env+="      IS_SCRAP_FROM_ZILEAN: \"${scrap_zilean,,}\"
 "
-    scraper_env+="      is_scrap_from_torrentio: \"${scrap_torrentio}\"
+    scraper_env+="      IS_SCRAP_FROM_TORRENTIO: \"${scrap_torrentio,,}\"
 "
-    scraper_env+="      is_scrap_from_yts: \"${scrap_yts}\"
+    scraper_env+="      IS_SCRAP_FROM_PUBLIC_INDEXERS: \"${scrap_public,,}\"
 "
-    scraper_env+="      is_scrap_from_bt4g: \"${scrap_bt4g}\""
+    scraper_env+="      IS_SCRAP_FROM_DMM_HASHLIST: \"${scrap_dmm,,}\""
 
     echo_progress_start "Generating Docker Compose configuration"
 
     cat >"${app_dir}/docker-compose.yml" <<COMPOSE
 services:
   mediafusion:
-    image: mhdzumair/mediafusion:latest
+    image: mhdzumair/mediafusion:6.1.5
     container_name: mediafusion
     restart: unless-stopped
     network_mode: host
-    entrypoint: ["bash", "-c"]
-    command:
-      - |
-        sed -i 's/--bind 0.0.0.0:8000/--bind 0.0.0.0:${app_port}/' /mediafusion/deployment/startup.sh
-        exec /mediafusion/deployment/startup.sh
     environment:
       SECRET_KEY: "${secret_key}"
       API_PASSWORD: "${api_password}"
-      POSTGRES_URI: "postgresql+asyncpg://mediafusion:${db_pass}@127.0.0.1:${pg_port}/mediafusion"
+      STREAM_RS_PORT: "${app_port}"
+      POSTGRES_URI: "postgresql://mediafusion:${db_pass}@127.0.0.1:${pg_port}/mediafusion"
       REDIS_URL: "redis://127.0.0.1:${redis_port}"
       HOST_URL: "https://${server_hostname}/mediafusion"
-      BROWSERLESS_URL: "http://127.0.0.1:${browser_port}"
-      PLAYWRIGHT_CDP_URL: "ws://127.0.0.1:${browser_port}?blockAds=true&stealth=true"
+      POSTER_HOST_URL: "https://${server_hostname}/mediafusion"
+      TRAWL_URL: "http://127.0.0.1:${trawl_port}"
 ${prowlarr_env:+${prowlarr_env}
 }${jackett_env:+${jackett_env}
 }${zilean_env:+${zilean_env}
@@ -442,19 +439,19 @@ ${disabled_providers_env:+${disabled_providers_env}
       - ALL
 
   mediafusion-worker:
-    image: mhdzumair/mediafusion:latest
+    image: mhdzumair/mediafusion:6.1.5
     container_name: mediafusion-worker
     restart: unless-stopped
     network_mode: host
-    command: dramatiq api.task -p 1 -t 4
+    command: ["/usr/local/bin/mediafusion-worker"]
     environment:
       SECRET_KEY: "${secret_key}"
       API_PASSWORD: "${api_password}"
-      POSTGRES_URI: "postgresql+asyncpg://mediafusion:${db_pass}@127.0.0.1:${pg_port}/mediafusion"
+      POSTGRES_URI: "postgresql://mediafusion:${db_pass}@127.0.0.1:${pg_port}/mediafusion"
       REDIS_URL: "redis://127.0.0.1:${redis_port}"
       HOST_URL: "https://${server_hostname}/mediafusion"
-      BROWSERLESS_URL: "http://127.0.0.1:${browser_port}"
-      PLAYWRIGHT_CDP_URL: "ws://127.0.0.1:${browser_port}?blockAds=true&stealth=true"
+      POSTER_HOST_URL: "https://${server_hostname}/mediafusion"
+      TRAWL_URL: "http://127.0.0.1:${trawl_port}"
 ${prowlarr_env:+${prowlarr_env}
 }${jackett_env:+${jackett_env}
 }${zilean_env:+${zilean_env}
@@ -514,22 +511,28 @@ ${disabled_providers_env:+${disabled_providers_env}
     security_opt:
       - no-new-privileges:true
 
-  mediafusion-browserless:
-    image: ghcr.io/browserless/chromium:latest
-    container_name: mediafusion-browserless
+  mediafusion-trawl:
+    image: ghcr.io/germondai/trawl:latest
+    container_name: mediafusion-trawl
     restart: unless-stopped
+    shm_size: 1gb
     environment:
-      - TIMEOUT=60000
-      - CONCURRENT=2
-      - HEALTH=true
+      # DB 1 - MediaFusion itself uses DB 0 on this shared redis.
+      - REDIS_URL=redis://mediafusion-redis:6379/1
+      - BROWSER_POOL_SIZE=3
     ports:
-      - "127.0.0.1:${browser_port}:3000"
+      - "127.0.0.1:${trawl_port}:8191"
+    depends_on:
+      mediafusion-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     networks:
       - mediafusion-net
-    deploy:
-      resources:
-        limits:
-          memory: 1536M
     security_opt:
       - no-new-privileges:true
 
@@ -723,12 +726,12 @@ _post_install_info() {
 
     # Show enabled scrapers summary
     local _enabled_scrapers=()
-    grep -q 'is_scrap_from_prowlarr: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Prowlarr")
-    grep -q 'is_scrap_from_jackett: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Jackett")
-    grep -q 'is_scrap_from_zilean: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Zilean")
-    grep -q 'is_scrap_from_torrentio: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Torrentio")
-    grep -q 'is_scrap_from_yts: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("YTS")
-    grep -q 'is_scrap_from_bt4g: "True"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("BT4G")
+    grep -q 'IS_SCRAP_FROM_PROWLARR: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Prowlarr")
+    grep -q 'IS_SCRAP_FROM_JACKETT: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Jackett")
+    grep -q 'IS_SCRAP_FROM_ZILEAN: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Zilean")
+    grep -q 'IS_SCRAP_FROM_TORRENTIO: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Torrentio")
+    grep -q 'IS_SCRAP_FROM_PUBLIC_INDEXERS: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("Public indexers")
+    grep -q 'IS_SCRAP_FROM_DMM_HASHLIST: "true"' "${app_dir}/docker-compose.yml" 2>/dev/null && _enabled_scrapers+=("DMM hashlist")
     if [[ ${#_enabled_scrapers[@]} -gt 0 ]]; then
         echo_info "Enabled scrapers: ${_enabled_scrapers[*]}"
     fi
@@ -807,7 +810,7 @@ _remove_mediafusion() {
     docker rmi mhdzumair/mediafusion:latest >>"$log" 2>&1 || true
     docker rmi postgres:18-alpine >>"$log" 2>&1 || true
     docker rmi redis:7-alpine >>"$log" 2>&1 || true
-    docker rmi ghcr.io/browserless/chromium:latest >>"$log" 2>&1 || true
+    docker rmi ghcr.io/germondai/trawl:latest >>"$log" 2>&1 || true
     echo_progress_done "Docker images removed"
 
     # Remove Docker network
@@ -847,6 +850,7 @@ _remove_mediafusion() {
         swizdb clear "${app_name}/pg_port" 2>/dev/null || true
         swizdb clear "${app_name}/redis_port" 2>/dev/null || true
         swizdb clear "${app_name}/browser_port" 2>/dev/null || true
+        swizdb clear "${app_name}/trawl_port" 2>/dev/null || true
     else
         echo_info "Configuration kept at: ${app_dir}"
         rm -f "${app_dir}/docker-compose.yml"
