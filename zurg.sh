@@ -1146,7 +1146,11 @@ repair_every_mins: 60
 
 # Media Analysis
 auto_analyze_new_torrents: true
-cache_network_test_results: true
+
+# Memory management
+# auto = release oldest idle file tables only under sustained memory pressure
+# (resident = never evict, lazy = evict on idle regardless of pressure)
+library_detail: auto
 
 # Binary paths
 # Use system binaries instead of zurg's auto-downloaded static builds
@@ -1159,6 +1163,12 @@ rclone_binary: /usr/bin/rclone
 # See: https://github.com/debridmediamanager/zurg for rclone flag documentation
 rclone_enabled: true
 mount_path: ${app_mount_point}
+# A rewrite-in-place through the mount reaches zurg as DELETE followed by PUT,
+# which deletes the release from the debrid account rather than replacing a file.
+# Nothing this installer configures writes into the mount (arr root folders are
+# symlink trees elsewhere), so refuse writes at the kernel. Set to false only if
+# you enable the SABnzbd endpoint or __magic__ writes.
+mount_read_only: true
 rclone_extra_args:
   - "--allow-other"
 
@@ -1199,8 +1209,8 @@ retain_rd_torrent_name: false
 check_for_changes_every_secs: 15
 repair_every_mins: 60
 
-# Media Analysis
-cache_network_test_results: true
+# Memory management
+library_detail: auto
 
 # Directory definitions
 directories:

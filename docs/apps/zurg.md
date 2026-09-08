@@ -174,6 +174,47 @@ The paid build needs GitHub auth for the private repo: `GITHUB_TOKEN`, an authen
 - **An empty folder at the mount root** is an orphaned `data/local/` overlay directory — see the union section above. An empty `movies`/`shows` is zurg's own scaffolding and returns after every restart; anything else, or anything holding files, is worth clearing.
 - **Upgrading re-imports the cache once.** Torrents cached in the pre-provider format have no provider stamp and are re-imported on the next refresh; archive releases re-match once.
 - The free build has no `providers:` support — switch with `--switch-version paid` first.
+- **`retain_folder_name_extension` is deprecated** as of the 2026-09 nightlies and will be removed. Do not turn it off while Decypharr is consuming the mount: Decypharr's `processSymlink` reads `<torrent name>.mkv/` for single-file torrents, so stripping the extension makes every one of those reads fail and time out. Upstream's reason for the deprecation is that `true` derives the access key from the name the account reports, which the account can rewrite underneath you.
+
+## Writes into the mount delete releases
+
+rclone cannot express "overwrite": it flushes a rewritten file as DELETE followed by
+PUT. A program that rewrites a file in place through the mount — an `.nfo` writer, a
+trickplay pass, an \*arr rename, a stray `touch` — therefore **deletes the release from
+the debrid account** rather than replacing a file, and the mount carries rclone's own
+credentials, so nothing upstream can tell that apart from a deliberate delete.
+
+`mount_read_only: true` fails the write at the kernel before it reaches zurg at all:
+
+```bash
+findmnt -no OPTIONS /mnt/zurg     # ro,nosuid,nodev,...
+touch /mnt/zurg/x                 # touch: Read-only file system
+```
+
+The installer sets it, because nothing it configures writes into the mount — arr root
+folders are symlink trees under `/mnt/symlinks/`, and Decypharr only reads
+`/mnt/zurg/__all__/`. Turn it off only if you enable the SABnzbd endpoint or
+`__magic__` sidecar writes.
+
+`union_writable: server` is the softer alternative: writes still reach zurg, which
+refuses them outside `__magic__` instead of the kernel refusing them. Note that under
+either setting a refused write does **not** fail at the syscall — rclone's cache accepts
+it and retries the upload forever, bounded by `--vfs-cache-max-size`.
+
+## Memory: `library_detail`
+
+How much of the library zurg keeps resident:
+
+| Mode | Behaviour |
+| --- | --- |
+| `resident` | Upstream default. Never evicts; every file table stays in heap. |
+| `auto` | Releases the oldest idle file tables **only under sustained memory pressure** (host, cgroup, or `memory_limit_mb`), in bounded batches with a cooldown. |
+| `lazy` | Evicts idle file tables regardless of pressure. |
+
+The installer sets `auto`. Where zurg shares a host with the arrs and a media server,
+`resident` on a large library can be the difference between headroom and swap thrash,
+while `lazy` gives up detail nobody was under pressure to reclaim.
+`library_detail_idle_secs` (default 300) sets the idle window.
 
 ## No Nginx
 
