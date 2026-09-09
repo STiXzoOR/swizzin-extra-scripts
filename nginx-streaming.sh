@@ -288,18 +288,38 @@ OCSP
             echo_info "OCSP stapling already configured"
         fi
 
-        # Cipher suite preference
-        if ! grep -q 'ssl_prefer_server_ciphers' /etc/nginx/snippets/ssl-params.conf; then
-            cat >>/etc/nginx/snippets/ssl-params.conf <<'CIPHERS'
-
-# Cipher suite (added by nginx-streaming.sh)
-ssl_prefer_server_ciphers on;
-ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-CIPHERS
-            echo_success "Added cipher suite preference"
+        # Cipher suite + curves.
+        #
+        # BUGFIX 2026-09-09: this block used to be guarded by
+        #   if ! grep -q 'ssl_prefer_server_ciphers' ...
+        # but Swizzin's stock ssl-params.conf ALWAYS contains that directive, so
+        # the good cipher list was never applied. A live box was found still
+        # negotiating the stock list, which is ECDHE-RSA-*/DHE-RSA-* only -
+        # suites an ECDSA certificate can never select (and
+        # ECDHE-RSA-AES256-GCM-SHA512 is not a real TLS 1.2 suite at all).
+        # Rewrite the directives in place instead of appending-if-absent.
+        #
+        # ChaCha20 is included for clients without AES-NI (phones/TVs/ARM),
+        # which is exactly the Emby/Plex client population, and
+        # ssl_prefer_server_ciphers is turned OFF so such a client can actually
+        # choose it. X25519 is preferred over the stock secp384r1.
+        local _ciphers='ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305'
+        if grep -q 'ssl_ciphers' /etc/nginx/snippets/ssl-params.conf; then
+            sed -i "s|^ssl_ciphers .*|ssl_ciphers ${_ciphers};|" /etc/nginx/snippets/ssl-params.conf
         else
-            echo_info "Cipher suite already configured"
+            echo "ssl_ciphers ${_ciphers};" >>/etc/nginx/snippets/ssl-params.conf
         fi
+        if grep -q 'ssl_prefer_server_ciphers' /etc/nginx/snippets/ssl-params.conf; then
+            sed -i 's|^ssl_prefer_server_ciphers .*|ssl_prefer_server_ciphers off;|' /etc/nginx/snippets/ssl-params.conf
+        else
+            echo 'ssl_prefer_server_ciphers off;' >>/etc/nginx/snippets/ssl-params.conf
+        fi
+        if grep -q 'ssl_ecdh_curve' /etc/nginx/snippets/ssl-params.conf; then
+            sed -i 's|^ssl_ecdh_curve .*|ssl_ecdh_curve X25519:prime256v1:secp384r1;|' /etc/nginx/snippets/ssl-params.conf
+        else
+            echo 'ssl_ecdh_curve X25519:prime256v1:secp384r1;' >>/etc/nginx/snippets/ssl-params.conf
+        fi
+        echo_success "Applied ECDSA-matched cipher suite, ChaCha20 and X25519"
     fi
 
     # 9. Test and reload nginx
