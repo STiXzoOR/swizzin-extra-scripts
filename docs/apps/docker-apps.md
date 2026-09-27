@@ -128,7 +128,7 @@ Stremio/Kodi universal add-on with native Torznab API for Prowlarr. 5-container 
 ### Features
 
 - 5 containers: app, worker, PostgreSQL, Redis, TRAWL (browser pool)
-- Pinned to `mhdzumair/mediafusion:6.1.5` — the Rust rewrite. Do not track `:latest`.
+- Pinned to `mhdzumair/mediafusion:6.1.6` — the Rust rewrite. Do not track `:latest`.
 - API port comes from `STREAM_RS_PORT`; the worker runs `/usr/local/bin/mediafusion-worker`
 - `HOST_URL` / `POSTER_HOST_URL` set from the Organizr domain detection chain
 - `sub_filter` rules rewrite SPA paths, including **backtick/template-literal**

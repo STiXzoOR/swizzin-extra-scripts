@@ -409,7 +409,7 @@ _install_mediafusion() {
     cat >"${app_dir}/docker-compose.yml" <<COMPOSE
 services:
   mediafusion:
-    image: mhdzumair/mediafusion:6.1.5
+    image: mhdzumair/mediafusion:6.1.6
     container_name: mediafusion
     restart: unless-stopped
     network_mode: host
@@ -439,7 +439,7 @@ ${disabled_providers_env:+${disabled_providers_env}
       - ALL
 
   mediafusion-worker:
-    image: mhdzumair/mediafusion:6.1.5
+    image: mhdzumair/mediafusion:6.1.6
     container_name: mediafusion-worker
     restart: unless-stopped
     network_mode: host

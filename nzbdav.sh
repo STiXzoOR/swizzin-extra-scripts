@@ -364,20 +364,30 @@ _wait_for_health() {
 # POST config updates to NZBDav's internal API
 # Usage: _nzbdav_api_post "config.key" "value" ["key2" "value2" ...]
 _nzbdav_api_post() {
+    # The SABnzbd api.key is seeded by a migration on first start. v1.4+ no
+    # longer exposes FRONTEND_BACKEND_API_KEY in the container env, so that
+    # is only a fallback for older images.
     local api_key
-    api_key=$(docker exec nzbdav printenv FRONTEND_BACKEND_API_KEY 2>/dev/null) || return 1
+    api_key=$(sqlite3 -readonly "${app_configdir}/db.sqlite" \
+        "SELECT ConfigValue FROM ConfigItems WHERE ConfigName='api.key'" 2>/dev/null)
+    [[ -n "$api_key" ]] || api_key=$(docker exec nzbdav printenv FRONTEND_BACKEND_API_KEY 2>/dev/null)
+    [[ -n "$api_key" ]] || return 1
 
+    # Each form field name IS the config key (the backend iterates Request.Form).
     local form_args=()
     while [[ $# -gt 0 ]]; do
-        form_args+=(-F "configName=$1" -F "configValue=$2")
+        form_args+=(--data-urlencode "$1=$2")
         shift 2
     done
 
     # /nzbdav/api/update-config when URL_BASE is set, /api/update-config when
-    # it isn't. The frontend proxies /api through to the backend either way.
-    curl -sf -X POST "http://127.0.0.1:${app_port}${NZBDAV_URL_BASE}/api/update-config" \
-        -H "x-api-key: ${api_key}" \
-        "${form_args[@]}" >/dev/null 2>&1
+    # it isn't. The frontend proxy drops the x-api-key header (401 "API Key
+    # Required" on v1.4+), so pass the key as the apikey query parameter.
+    local response
+    response=$(curl -sf -X POST \
+        "http://127.0.0.1:${app_port}${NZBDAV_URL_BASE}/api/update-config?apikey=${api_key}" \
+        "${form_args[@]}" 2>/dev/null) || return 1
+    [[ "$response" == *'"status":true'* ]]
 }
 
 # ==============================================================================
@@ -657,6 +667,10 @@ _setup_rclone() {
 
             # Tell NZBDav where the rclone mount lives (Phase 3)
             _nzbdav_api_post "rclone.mount-dir" "${app_mount_point}" || true
+
+            # The rclone VFS cache already caches every streamed byte; NZBDav's
+            # own segment cache would write it to disk a second time.
+            _nzbdav_api_post "usenet.segment-cache.enabled" "false" || true
         fi
     fi
 

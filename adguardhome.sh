@@ -490,14 +490,20 @@ _update_adguardhome() {
     # Extract only the binary, leave config/data in place.
     local _tmp_extract
     _tmp_extract=$(mktemp -d "/tmp/${app_name}-extract-XXXXXX")
-    tar -xf "$_tmp_download" -C "$_tmp_extract" --strip-components=1 AdGuardHome/AdGuardHome >>"$log" 2>&1 || {
+    # Upstream tarballs prefix members with "./", so match with a wildcard
+    # and locate the binary afterwards instead of relying on --strip-components.
+    local _new_binary=""
+    if tar -xf "$_tmp_download" -C "$_tmp_extract" --wildcards '*AdGuardHome/AdGuardHome' >>"$log" 2>&1; then
+        _new_binary=$(find "$_tmp_extract" -type f -path '*AdGuardHome/AdGuardHome' | head -1)
+    fi
+    if [[ -z "$_new_binary" ]]; then
         echo_error "Failed to extract binary"
         [[ -f "${backup_dir}/AdGuardHome" ]] && cp "${backup_dir}/AdGuardHome" "$app_binary"
         systemctl start "$app_servicefile" 2>/dev/null || true
         rm -rf "$_tmp_extract" "$_tmp_download"
         exit 1
-    }
-    mv "${_tmp_extract}/AdGuardHome" "$app_binary"
+    fi
+    mv "$_new_binary" "$app_binary"
     chmod +x "$app_binary"
     chown "${app_sysuser}:${app_sysuser}" "$app_binary"
     rm -rf "$_tmp_extract" "$_tmp_download"
