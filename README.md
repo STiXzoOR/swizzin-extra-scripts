@@ -25,6 +25,8 @@ A collection of installer scripts for integrating additional applications into [
 | [stremthru.sh](#stremthru)            | [StremThru](https://github.com/MunifTanjim/stremthru)        | Debrid streaming proxy with store management                     |
 | [aiostreams.sh](#aiostreams)          | [AIOStreams](https://github.com/Viren070/AIOStreams)         | Stremio super-addon consolidating debrid services and addons     |
 | [remux.sh](#remux)                    | [Remux](https://github.com/lostb1t/remux)                    | Jellyfin-compatible media server aggregating Stremio/WebDAV/local sources |
+| [romm.sh](#romm)                      | [RomM](https://github.com/rommapp/romm)                      | ROM manager with metadata scraping and in-browser emulation      |
+| [romarr.sh](#romarr)                  | [ROMarr](https://github.com/BlizzHacker/romarr)              | *arr-style ROM download automation feeding RomM                  |
 | [mediafusion.sh](#mediafusion)        | [MediaFusion](https://github.com/mhdzumair/MediaFusion)      | Stremio/Kodi add-on with Torznab API for Prowlarr               |
 | [zilean.sh](#zilean)                  | [Zilean](https://github.com/iPromKnight/zilean)              | DMM hashlist Torznab indexer for debrid content                  |
 | [nzbdav.sh](#nzbdav)                  | [NzbDav](https://github.com/infinidysk/infinidysk)                  | NZB-to-WebDAV bridge for debrid download clients                 |

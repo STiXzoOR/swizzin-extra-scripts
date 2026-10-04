@@ -23,7 +23,7 @@ Each installer script follows this sequence:
 | -------------------- | ------------------------------------------- | ------------------------------------------ |
 | Single-file binaries | `/usr/bin/<appname>`                        | decypharr, notifiarr, zurg                 |
 | Multi-file apps      | `/opt/<appname>/`                           | cleanuparr, seerr, byparr, huntarr, subgen, newtarr |
-| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr, remux |
+| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr, remux, romm, romarr |
 
 ## Files Overview
 
@@ -49,6 +49,8 @@ Each installer script follows this sequence:
 | `stremthru.sh`      | Debrid streaming proxy with store management (Docker)        |
 | `aiostreams.sh`     | Stremio super-addon consolidating debrid services + addons (Docker, single container) |
 | `remux.sh`          | Jellyfin-compatible media server aggregating Stremio/WebDAV/local sources (Docker, subdomain-only) |
+| `romarr.sh`         | ROMarr ROM automation wired to Prowlarr, nzbdav, Real-Debrid, decypharr and RomM (Docker, subdomain-only) |
+| `romm.sh`           | RomM ROM manager + MariaDB, metadata providers and platform folders pre-configured (Docker, subdomain-only) |
 | `mediafusion.sh`    | Stremio/Kodi add-on with Torznab API (Docker, 5 containers) |
 | `zilean.sh`         | DMM hashlist Torznab indexer for debrid content (Docker)     |
 | `nzbdav.sh`         | NZB-to-WebDAV bridge for debrid download clients (Docker)    |

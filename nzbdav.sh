@@ -515,6 +515,7 @@ ExecStart=/usr/bin/rclone mount nzbdav: ${app_mount_point} \
     --vfs-cache-mode full \
     --buffer-size 32M \
     --vfs-read-ahead 512M \
+    --vfs-read-chunk-size 16M \
     --vfs-cache-max-size 20G \
     --vfs-cache-min-free-space 15G \
     --vfs-cache-max-age 24h \

@@ -521,6 +521,25 @@ APP_CONFIGS = {
         # No default_port — host port is allocated by the installer and lives
         # in swizdb at remux/port (compose maps 127.0.0.1:<port>:3000).
     },
+    "romarr": {
+        "config_paths": ["/opt/romarr/.env"],
+        "format": "dotenv",
+        "keys": {
+            "port": "ROMARR_PORT",
+            "apikey": "ROMARR_API_KEY",
+            "library_path": "LIBRARY_PATH",
+        },
+    },
+    "romm": {
+        "config_paths": ["/opt/romm/.env"],
+        "format": "dotenv",
+        "keys": {
+            "base_url": "ROMM_BASE_URL",
+            "db_name": "DB_NAME",
+        },
+        # No default_port — host port is allocated by the installer and lives
+        # in swizdb at romm/port (compose maps 127.0.0.1:<port>:8080).
+    },
     "mediafusion": {
         "config_paths": ["/opt/mediafusion/docker-compose.yml"],
         "format": "mediafusion",

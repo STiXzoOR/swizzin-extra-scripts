@@ -428,6 +428,20 @@ opt/swaparr/docker-compose.yml
 # === TRACEARR ===
 opt/tracearr/docker-compose.yml
 
+# === ROMM ===
+# MariaDB datadir + library/assets/resources are backed up (service stopped).
+# Valkey cache and the compose file (recreated by installer) are not.
+opt/romm/docker-compose.yml
+opt/romm/redis-data
+opt/romm/redis-data/**
+
+# === ROMARR ===
+# config/ (romarr.json: settings, history, API key) is backed up. The staging
+# area only holds debrid downloads awaiting import.
+opt/romarr/docker-compose.yml
+opt/romarr/downloads
+opt/romarr/downloads/**
+
 # === POSTERIZARR ===
 opt/posterizarr/docker-compose.yml
 opt/posterizarr/assets/**

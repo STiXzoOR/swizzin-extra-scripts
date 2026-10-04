@@ -128,6 +128,10 @@ declare -A APP_PATHS=(
     # Analytics
     ["tracearr"]="opt/tracearr"
 
+    # Games
+    ["romm"]="opt/romm"
+    ["romarr"]="opt/romarr"
+
     # Additional
     ["wireguard"]="etc/wireguard"
     ["tailscale"]="var/lib/tailscale"
@@ -168,6 +172,8 @@ declare -A SERVICE_TYPES=(
     ["autopulse"]="system"
     ["stremthru"]="system" ["aiostreams"]="system" ["mediafusion"]="system" ["zilean"]="system"
     ["nzbdav"]="system" ["newtarr"]="system" ["litterbox"]="system"
+    ["romm"]="system"
+    ["romarr"]="system"
     ["remux"]="system"
     ["nzbhydra2"]="system"
     ["easynews-indexer"]="system"

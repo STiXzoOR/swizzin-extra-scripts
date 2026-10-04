@@ -244,6 +244,88 @@ Instead, the installer ships an **MDBList → Stremio catalog sidecar** (`jaruba
 
 ---
 
+## ROMarr
+
+*arr-style ROM download automation ([BlizzHacker/romarr](https://github.com/BlizzHacker/romarr), Python, MIT). It searches Prowlarr, hands releases to a download client, verifies them against No-Intro/Redump DATs, files them into RomM's `roms/{fs_slug}` and asks RomM to scan.
+
+**Install:** `ROMARR_DOMAIN=romarr.example.com bash romarr.sh` (install `romm.sh` first so the library and RomM account get wired)
+**Update:** `bash romarr.sh --update` (pinned image; bump with `ROMARR_VERSION=x.y.z`)
+**Remove:** `bash romarr.sh --remove`
+**Re-wire clients:** `bash romarr.sh --wire` | **Status:** `bash romarr.sh --status`
+
+### File Layout
+
+| Path                              | Purpose                                                       |
+| --------------------------------- | ------------------------------------------------------------- |
+| `/opt/romarr/.env`                | First-run settings, password, API key (600, root)             |
+| `/opt/romarr/config/romarr.json`  | All runtime state: settings, clients, history, queue          |
+| `/opt/romarr/downloads/`          | Debrid staging (Real-Debrid files land here before import)    |
+| `/opt/romm/.romarr_credentials`   | RomM account + non-expiring client token ROMarr uses (600, root) |
+| `/etc/cron.d/romarr-recover`      | Stalled-import recovery every 5 min (`--recover-stalled`)     |
+| `/etc/nginx/sites-available/romarr` | Subdomain vhost                                             |
+
+### Wiring (auto-discovered, each optional)
+
+| Integration | How |
+| --- | --- |
+| Prowlarr | URL + key from the owner's `config.xml` → `PROWLARR_*` env (first run) |
+| nzbdav (usenet) | SABnzbd API; the installer adds a `romarr` category **live** via `update-config`, including `ensure-article-existence-categories` |
+| Real-Debrid (torrent) | ROMarr's built-in RD client, added **first**; it can fetch uncached torrents. Token from `ROMARR_RD_API_TOKEN` or decypharr's config |
+| decypharr (torrent) | qBittorrent API, added second as standby. Auth is decypharr's arr scheme: username = ROMarr's URL, password = its API key |
+| RomM | A dedicated `romarr` RomM account (admin: RomM 5.x has only user/admin roles and scans need `tasks.run`) |
+
+ROMarr sends each grab to the **first** enabled client for its protocol. There is no failover, so client order matters. The installer never configures the site-scraping `direct`/`browser` downloaders or ROM Hub plugins.
+
+decypharr only symlinks extensions listed in its `allowed_file_types`, which ships as video/audio only. ROM torrents through it import nothing until ROM extensions (nsp, xci, iso, chd, rvz, gba, …) are added. `romarr.sh --wire` warns when they're missing.
+
+### Known upstream issues (v1.0.0, RomM 5.3.1) and installer workarounds
+
+- **RomM token expiry → library reads fail (worked around; [romarr#39](https://github.com/BlizzHacker/romarr/issues/39), [romm#4788](https://github.com/rommapp/romm/issues/4788)).** ROMarr re-authenticates only on a 401, but RomM 5.x answers an expired OAuth bearer with a **500** (an unhandled `OAuthCredentialsException`). Password auth therefore breaks about 30 minutes after every start: `readable: false`, and RomM logs 500s every 5 minutes. The installer creates a **non-expiring RomM client token** (`rmm_…`, scopes `me.read roms.read platforms.read collections.read tasks.run`) for the `romarr` account. It stores it as `token=` in `/opt/romm/.romarr_credentials` and sets it as the library's `api_key`: through `LIBRARY_API_KEY` on first run, or through the library API plus a restart via `--wire`.
+- **Name-match import stall (worked around; [romarr#38](https://github.com/BlizzHacker/romarr/issues/38)).** Completed downloads are matched to the queue by `item.release == <client's torrent name>`. When the indexer title differs from the torrent's internal name (e.g. Nyaa "Pokemon Emerald Rom" vs RD "Pokemon Emerald (U).gba"), the item stays `grabbed` forever. `/etc/cron.d/romarr-recover` runs `romarr.sh --recover-stalled` every 5 minutes. It matches `grabbed` items older than 10 minutes (`ROMARR_STALL_MINUTES`) **by hash** (`release_id: btih:…`) against Real-Debrid's finished torrents and decypharr's qBit API, then Manual Imports the payload with the queued platform. It also removes the queue item and deletes the RD staging copy. Log: `/var/log/romarr-recover.log`.
+- **RomM scan call rejected.** ROMarr calls `POST /api/tasks/run/scan_library` and gets `400 cannot be run` (RomM 5.x scans are socket.io-only). RomM's filesystem watcher (enabled by `romm.sh`) rescans 5 minutes after the import instead.
+- **Matching can pick the wrong game or platform.** "Hollow Knight" picked *Silksong*; "Metroid Prime (ngc)" picked a Metroid Prime 4 Switch update. Review grabs rather than running fully unattended.
+- **Host networking.** ROMarr binds `0.0.0.0:<port>` with no bind option; keep the port firewalled.
+
+---
+
+## RomM
+
+ROM manager and in-browser player ([rommapp/romm](https://github.com/rommapp/romm)). Scans a ROM library, enriches it from metadata providers, and plays games via EmulatorJS. Runs with a MariaDB sidecar.
+
+**Install:** `ROMM_DOMAIN=romm.example.com bash romm.sh` (add `ROMM_IGDB_CLIENT_ID=... ROMM_IGDB_CLIENT_SECRET=...` etc., or answer the prompts)
+**Update:** `bash romm.sh --update`
+**Remove:** `bash romm.sh --remove` (purging config asks separately before deleting the ROM library)
+**Providers:** `bash romm.sh --set-providers` (prompts, or `ROMM_*` env vars); `bash romm.sh --status` shows what is enabled
+**Platforms:** `bash romm.sh --add-platforms psvita,xbox` (RomM `fs_slug`s)
+
+### File Layout
+
+| Path                                | Purpose                                                   |
+| ----------------------------------- | --------------------------------------------------------- |
+| `/opt/romm/docker-compose.yml`      | Compose file: `romm` + `romm-db` (recreated by installer) |
+| `/opt/romm/.env`                    | All settings + secrets (600, root); preserved on update   |
+| `/opt/romm/.admin_credentials`      | Generated admin login (600, root)                         |
+| `/opt/romm/config/config.yml`       | Scan priorities, regions, media, exclusions (never overwritten) |
+| `/opt/romm/library/roms/<platform>` | ROMs (Structure A: `roms/{platform}/{game}`)              |
+| `/opt/romm/library/bios/<platform>` | Firmware/BIOS                                             |
+| `/opt/romm/assets/`                 | Saves, states, screenshots                                |
+| `/opt/romm/resources/`              | Scraped covers/screenshots/manuals                        |
+| `/opt/romm/mysql/`                  | MariaDB datadir                                           |
+| `/opt/romm/redis-data/`             | Embedded Valkey snapshot (cache, excluded from backup)    |
+| `/etc/nginx/sites-available/romm`   | Subdomain vhost                                           |
+
+### Features
+
+- **Subdomain-only.** The SPA hardcodes `/` as its router base and calls `/api`, `/ws`, `/netplay` and `/assets` at the root. Upstream has no base-path setting (rommapp/romm#1551, #1604), so a subpath would mean `sub_filter` over ~1500 hashed JS chunks.
+- **No setup wizard.** On first boot the installer uses RomM's setup API (open only while no admin exists) to create the platform folders and an admin account: the master user with a generated password. Those calls need a CSRF cookie/header pair even unauthenticated; `_csrf_curl` handles it. The cookie is sent by hand because it is `Secure`.
+- **Metadata providers.** The keyless ones are always on: Hasheous, LaunchBox, PlayMatch, Flashpoint, HowLongToBeat, TheGamesDB, Steam (plus libretro, which is built in). The keyed ones are IGDB, ScreenScraper, SteamGridDB, RetroAchievements and MobyGames. When RetroAchievements has a key, achievement progress sync is enabled.
+- **Background tasks.** Rescan on filesystem change (5 min delay), nightly rescan at 03:00, Switch TitleDB and LaunchBox metadata refresh, WebP conversion, orphan cleanup. RomM has no REST trigger for a scan (it's socket.io-only), so new ROMs are picked up by the watcher.
+- RomM runs as the app owner's uid:gid, so the library stays user-owned. MariaDB is pinned to the 11.8 LTS line so `--update` never jumps a major version.
+- The vhost turns off request/response buffering so large ROM uploads and downloads stream, and upgrades WebSockets for socket.io. RomM's inner nginx keeps setting COEP/COOP for the EmulatorJS player.
+- The cert check trusts `fullchain.pem`, not the `box install letsencrypt` exit code: that command can exit 0 after a failed http-01 challenge and leave an empty cert dir.
+
+---
+
 ## Easynews-as-indexer
 
 Bridge that wraps Easynews's proprietary file-level search behind a Newznab-compatible API, so the search index can be added to NZBHydra2 / Prowlarr / nzbdav as a Generic Newznab indexer. Image: [`ghcr.io/sanket9225/easynews_as_indexer`](https://github.com/Sanket9225/Easynews_as_indexer).

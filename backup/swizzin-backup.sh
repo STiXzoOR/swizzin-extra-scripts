@@ -30,7 +30,7 @@
 #   flaresolverr, huntarr, subgen, lingarr, cleanuparr, seerr, overseerr, jellyseerr,
 #   mdblist-sync, mdblist-filter-proxy, mdblistarr, stremthru, mediafusion,
 #   zilean, nzbdav, newtarr, swaparr, litterbox, nzbhydra2, aiostreams,
-#   easynews-indexer, babysitarr, tailscale, remux
+#   easynews-indexer, babysitarr, tailscale, remux, romm, romarr
 #===============================================================================
 
 set -euo pipefail
@@ -205,6 +205,10 @@ declare -A SERVICE_TYPES=(
     # Analytics
     ["tracearr"]="system"
 
+    # Games
+    ["romm"]="system"
+    ["romarr"]="system"
+
     # DNS
     ["adguardhome"]="system"
 
@@ -237,7 +241,7 @@ SERVICE_STOP_ORDER=(
     flood deluge deluged deluge-web qbittorrent rtorrent transmission
     nzbget sabnzbd
     # Utilities
-    filebrowser syncthing pyload netdata adguardhome subgen lingarr libretranslate mdblistarr mdblist-filter-proxy newtarr litterbox autopulse checkrr posterizarr tracearr
+    filebrowser syncthing pyload netdata adguardhome subgen lingarr libretranslate mdblistarr mdblist-filter-proxy newtarr litterbox autopulse checkrr posterizarr tracearr romarr romm
     # Real-Debrid (stop last, start first)
     zurg decypharr
     # Never stop: rclone-zurg, organizr, nextcloud, nginx, panel
@@ -262,6 +266,7 @@ declare -A SERVICE_STOP_CRITICAL=(
     ["remux"]=1
     ["decypharr"]=1
     ["tracearr"]=1
+    ["romm"]=1
     ["babysitarr"]=1
 )
 
