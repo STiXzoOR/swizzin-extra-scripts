@@ -26,7 +26,7 @@ set -euo pipefail
 #     MobyGames) from ROMM_* env vars or prompts; re-run with --set-providers
 #   - config.yml with scan priorities, regions and media types
 #   - Library folders (roms/{platform}, bios/{platform}) for a common platform set
-#   - Admin account (swizzin master user, generated password)
+#   - Admin account (swizzin master user + its password, like the arrs)
 #   - Scheduled rescans, filesystem-change rescans, LaunchBox/Switch DB refresh
 
 . /etc/swizzin/sources/globals.sh
@@ -750,7 +750,19 @@ print(json.dumps([s.strip() for s in sys.argv[1].split(',') if s.strip()]))" "$s
     fi
 }
 
-# Create the admin (swizzin master user + generated password) when none exists.
+# The swizzin master user's password (swizzin keeps "user:pass" in
+# /root/.master.info), so the login matches the arrs. Empty when the owner
+# isn't the master user or the file is missing.
+_master_password() {
+    local mu mp
+    [[ -r /root/.master.info ]] || return 0
+    IFS=: read -r mu mp </root/.master.info || true
+    [[ "$mu" == "$user" ]] && printf '%s' "$mp"
+    return 0
+}
+
+# Create the admin (swizzin master user + master password, else generated)
+# when none exists.
 _create_admin() {
     local show_wizard
     show_wizard="$(_heartbeat_field SYSTEM.SHOW_SETUP_WIZARD)"
@@ -760,7 +772,9 @@ _create_admin() {
     fi
 
     local admin_user="${ROMM_ADMIN_USER:-$user}"
-    local admin_pass="${ROMM_ADMIN_PASSWORD:-$(_gen_secret 12)}"
+    local admin_pass="${ROMM_ADMIN_PASSWORD:-}"
+    [[ -z "$admin_pass" && "$admin_user" == "$user" ]] && admin_pass="$(_master_password)"
+    [[ -n "$admin_pass" ]] || admin_pass="$(_gen_secret 12)"
     local body_file resp
     body_file=$(mktemp /tmp/romm-admin-XXXXXX.json)
     chmod 600 "$body_file"
@@ -1275,7 +1289,7 @@ _usage() {
     echo "  ROMM_LE_INTERACTIVE             yes|no — interactive Let's Encrypt mode (default: no)"
     echo "  ROMM_LE_HOSTNAME                Request cert for a different hostname (e.g. wildcard)"
     echo "  ROMM_PLATFORMS                  Platform folders to create on install (comma-separated)"
-    echo "  ROMM_ADMIN_USER / _PASSWORD     Admin account (default: master user + generated password)"
+    echo "  ROMM_ADMIN_USER / _PASSWORD     Admin account (default: master user + its swizzin password)"
     echo "  ROMM_NO_PROMPT                  Non-empty — never prompt for provider keys"
     echo "  ROMM_IGDB_CLIENT_ID / _SECRET   IGDB (Twitch) credentials"
     echo "  ROMM_SCREENSCRAPER_USER / _PASSWORD"

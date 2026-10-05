@@ -614,6 +614,17 @@ d=json.load(sys.stdin); print(d.get('raw_token') or '')" 2>/dev/null) || true
     echo_info "RomM client token created for ROMarr (non-expiring)"
 }
 
+# The swizzin master user's password (swizzin keeps "user:pass" in
+# /root/.master.info), so the login matches the arrs. Empty when the owner
+# isn't the master user or the file is missing.
+_master_password() {
+    local mu mp
+    [[ -r /root/.master.info ]] || return 0
+    IFS=: read -r mu mp </root/.master.info || true
+    [[ "$mu" == "$user" ]] && printf '%s' "$mp"
+    return 0
+}
+
 # ==============================================================================
 # .env (first-run settings; ROMarr only reads client/indexer/library env vars
 # on its first start, later changes go through the API — see _wire)
@@ -632,7 +643,10 @@ _write_env() {
     _env_default UMASK "002"
     _env_default TZ "$(cat /etc/timezone 2>/dev/null || echo Etc/UTC)"
     _env_default ROMARR_PORT "$app_port"
-    _env_default ROMARR_PASSWORD "$(_gen_secret 12)"
+    # Same login as the arrs when the owner is the swizzin master user
+    local pw
+    pw="$(_master_password)"
+    _env_default ROMARR_PASSWORD "${pw:-$(_gen_secret 12)}"
     _env_default ROMARR_API_KEY "$(_gen_secret 16)"
     _env_default LOG_LEVEL "INFO"
 

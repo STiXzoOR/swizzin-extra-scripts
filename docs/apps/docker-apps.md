@@ -257,7 +257,7 @@ Instead, the installer ships an **MDBList → Stremio catalog sidecar** (`jaruba
 
 | Path                              | Purpose                                                       |
 | --------------------------------- | ------------------------------------------------------------- |
-| `/opt/romarr/.env`                | First-run settings, password, API key (600, root)             |
+| `/opt/romarr/.env`                | First-run settings, password (defaults to the swizzin master password, like the arrs), API key (600, root) |
 | `/opt/romarr/config/romarr.json`  | All runtime state: settings, clients, history, queue          |
 | `/opt/romarr/downloads/`          | Debrid staging (Real-Debrid files land here before import)    |
 | `/opt/romm/.romarr_credentials`   | RomM account + non-expiring client token ROMarr uses (600, root) |
@@ -284,6 +284,7 @@ decypharr only symlinks extensions listed in its `allowed_file_types`, which shi
 - **Name-match import stall (worked around; [romarr#38](https://github.com/BlizzHacker/romarr/issues/38)).** Completed downloads are matched to the queue by `item.release == <client's torrent name>`. When the indexer title differs from the torrent's internal name (e.g. Nyaa "Pokemon Emerald Rom" vs RD "Pokemon Emerald (U).gba"), the item stays `grabbed` forever. `/etc/cron.d/romarr-recover` runs `romarr.sh --recover-stalled` every 5 minutes. It matches `grabbed` items older than 10 minutes (`ROMARR_STALL_MINUTES`) **by hash** (`release_id: btih:…`) against Real-Debrid's finished torrents and decypharr's qBit API, then Manual Imports the payload with the queued platform. It also removes the queue item and deletes the RD staging copy. Log: `/var/log/romarr-recover.log`.
 - **RomM scan call rejected.** ROMarr calls `POST /api/tasks/run/scan_library` and gets `400 cannot be run` (RomM 5.x scans are socket.io-only). RomM's filesystem watcher (enabled by `romm.sh`) rescans 5 minutes after the import instead.
 - **Matching can pick the wrong game or platform.** "Hollow Knight" picked *Silksong*; "Metroid Prime (ngc)" picked a Metroid Prime 4 Switch update. Review grabs rather than running fully unattended.
+- **Password changes.** ROMarr has no change-password API; `ROMARR_PASSWORD` only applies while unclaimed. To change it: stop the container, back up `config/romarr.json`, delete `settings._password_hash`, set `ROMARR_PASSWORD` in `.env`, start. ROMarr is single-user (password only, no username).
 - **Host networking.** ROMarr binds `0.0.0.0:<port>` with no bind option; keep the port firewalled.
 
 ---
@@ -317,7 +318,7 @@ ROM manager and in-browser player ([rommapp/romm](https://github.com/rommapp/rom
 ### Features
 
 - **Subdomain-only.** The SPA hardcodes `/` as its router base and calls `/api`, `/ws`, `/netplay` and `/assets` at the root. Upstream has no base-path setting (rommapp/romm#1551, #1604), so a subpath would mean `sub_filter` over ~1500 hashed JS chunks.
-- **No setup wizard.** On first boot the installer uses RomM's setup API (open only while no admin exists) to create the platform folders and an admin account: the master user with a generated password. Those calls need a CSRF cookie/header pair even unauthenticated; `_csrf_curl` handles it. The cookie is sent by hand because it is `Secure`.
+- **No setup wizard.** On first boot the installer uses RomM's setup API (open only while no admin exists) to create the platform folders and an admin account: the swizzin master user with its master password from `/root/.master.info`, the same login as the arrs (generated if the owner isn't the master user). Those calls need a CSRF cookie/header pair even unauthenticated; `_csrf_curl` handles it. The cookie is sent by hand because it is `Secure`.
 - **Metadata providers.** The keyless ones are always on: Hasheous, LaunchBox, PlayMatch, Flashpoint, HowLongToBeat, TheGamesDB, Steam (plus libretro, which is built in). The keyed ones are IGDB, ScreenScraper, SteamGridDB, RetroAchievements and MobyGames. When RetroAchievements has a key, achievement progress sync is enabled.
 - **Background tasks.** Rescan on filesystem change (5 min delay), nightly rescan at 03:00, Switch TitleDB and LaunchBox metadata refresh, WebP conversion, orphan cleanup. RomM has no REST trigger for a scan (it's socket.io-only), so new ROMs are picked up by the watcher.
 - RomM runs as the app owner's uid:gid, so the library stays user-owned. MariaDB is pinned to the 11.8 LTS line so `--update` never jumps a major version.
