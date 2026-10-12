@@ -31,6 +31,7 @@ plex.sh, emby.sh, and jellyfin.sh follow a common pattern for subdomain conversi
 
 - Range/If-Range headers for streaming
 - Premiere bypass (see below)
+- `emby-server.service.d/analyze.conf` drop-in: `ExecStartPre` runs a full `ANALYZE` on `library.db` before every start. Emby's shutdown `pragma optimize` writes sampled planner stats that make searches take minutes on large libraries, hanging all clients. Installed on any install/subdomain run; removed by `--remove`.
 
 ### Jellyfin
 

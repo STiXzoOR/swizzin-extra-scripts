@@ -209,6 +209,45 @@ _install_app() {
     else
         echo_info "${app_name^} already installed"
     fi
+    _install_db_analyze_dropin
+}
+
+# ==============================================================================
+# library.db Planner Stats (ANALYZE before every start)
+# ==============================================================================
+# Emby's shutdown "pragma optimize" runs a sampled ANALYZE that writes bad
+# planner stats on large libraries (500k+ items). Search queries then take
+# minutes, and search-as-you-type stacks them until every client hangs. A full
+# ANALYZE takes ~1s, so run it before each start (incl. backup restarts).
+
+analyze_dropin="/etc/systemd/system/emby-server.service.d/analyze.conf"
+
+_install_db_analyze_dropin() {
+    if ! command -v sqlite3 >/dev/null 2>&1; then
+        echo_info "Installing sqlite3..."
+        apt_install sqlite3
+    fi
+
+    mkdir -p "$(dirname "$analyze_dropin")"
+    cat >"$analyze_dropin" <<'EOF'
+[Service]
+# Emby's shutdown "pragma optimize" does a sampled ANALYZE that writes bad
+# planner stats for library.db; search queries then take minutes and saturate
+# the DB, hanging every client. A full ANALYZE takes ~1s, so rebuild the stats
+# before every start. "-" = never block startup on failure.
+ExecStartPre=-/usr/bin/sqlite3 /var/lib/emby/data/library.db "ANALYZE;"
+TimeoutStartSec=300
+EOF
+    systemctl daemon-reload
+    echo_info "library.db ANALYZE drop-in installed (applies on next ${app_name^} start)"
+}
+
+_remove_db_analyze_dropin() {
+    if [ -f "$analyze_dropin" ]; then
+        rm -f "$analyze_dropin"
+        rmdir "$(dirname "$analyze_dropin")" 2>/dev/null || true
+        systemctl daemon-reload
+    fi
 }
 
 # ==============================================================================
@@ -639,6 +678,8 @@ _install_subdomain() {
             echo_info "Already in subdomain mode"
             ;;
     esac
+
+    [ -f "$analyze_dropin" ] || _install_db_analyze_dropin
 }
 
 _revert_subdomain() {
@@ -803,6 +844,8 @@ _remove() {
 
     # Remove backup dir
     rm -rf "$backup_dir"
+
+    _remove_db_analyze_dropin
 
     # Reload nginx
     _reload_nginx 2>/dev/null || true
