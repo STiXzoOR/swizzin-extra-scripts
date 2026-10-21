@@ -133,7 +133,15 @@ else
     redis_port=$(port 10000 12000)
 fi
 
-if _existing_trawl_port="$(swizdb get "${app_name}/trawl_port" 2>/dev/null)" && [[ -n "$_existing_trawl_port" ]]; then
+# A shared TRAWL from trawl.sh replaces the bundled sidecar
+trawl_external=false
+if [[ -f /install/.trawl.lock ]]; then
+    trawl_external=true
+    trawl_port=8191
+    if _shared_trawl_port="$(swizdb get "trawl/port" 2>/dev/null)" && [[ -n "$_shared_trawl_port" ]]; then
+        trawl_port="$_shared_trawl_port"
+    fi
+elif _existing_trawl_port="$(swizdb get "${app_name}/trawl_port" 2>/dev/null)" && [[ -n "$_existing_trawl_port" ]]; then
     trawl_port="$_existing_trawl_port"
 elif _existing_browser_port="$(swizdb get "${app_name}/browser_port" 2>/dev/null)" && [[ -n "$_existing_browser_port" ]]; then
     # pre-v6 installs allocated this for browserless; TRAWL reuses the port
@@ -406,6 +414,40 @@ _install_mediafusion() {
 
     echo_progress_start "Generating Docker Compose configuration"
 
+    # Bundled TRAWL sidecar unless a shared TRAWL (trawl.sh) is installed
+    local trawl_service=""
+    if [[ "$trawl_external" != "true" ]]; then
+        trawl_service=$(cat <<TRAWL
+  mediafusion-trawl:
+    image: ghcr.io/germondai/trawl:latest
+    container_name: mediafusion-trawl
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      # DB 1 - MediaFusion itself uses DB 0 on this shared redis.
+      - REDIS_URL=redis://mediafusion-redis:6379/1
+      - BROWSER_POOL_SIZE=3
+    ports:
+      - "127.0.0.1:${trawl_port}:8191"
+    depends_on:
+      mediafusion-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - mediafusion-net
+    security_opt:
+      - no-new-privileges:true
+
+TRAWL
+)
+        trawl_service+=$'\n\n'
+    fi
+
     cat >"${app_dir}/docker-compose.yml" <<COMPOSE
 services:
   mediafusion:
@@ -511,32 +553,7 @@ ${disabled_providers_env:+${disabled_providers_env}
     security_opt:
       - no-new-privileges:true
 
-  mediafusion-trawl:
-    image: ghcr.io/germondai/trawl:latest
-    container_name: mediafusion-trawl
-    restart: unless-stopped
-    shm_size: 1gb
-    environment:
-      # DB 1 - MediaFusion itself uses DB 0 on this shared redis.
-      - REDIS_URL=redis://mediafusion-redis:6379/1
-      - BROWSER_POOL_SIZE=3
-    ports:
-      - "127.0.0.1:${trawl_port}:8191"
-    depends_on:
-      mediafusion-redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8191/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-    networks:
-      - mediafusion-net
-    security_opt:
-      - no-new-privileges:true
-
-networks:
+${trawl_service}networks:
   mediafusion-net:
     driver: bridge
 COMPOSE

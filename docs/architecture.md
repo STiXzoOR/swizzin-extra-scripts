@@ -23,7 +23,7 @@ Each installer script follows this sequence:
 | -------------------- | ------------------------------------------- | ------------------------------------------ |
 | Single-file binaries | `/usr/bin/<appname>`                        | decypharr, notifiarr, zurg                 |
 | Multi-file apps      | `/opt/<appname>/`                           | cleanuparr, seerr, byparr, huntarr, subgen, newtarr |
-| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr, remux, romm, romarr, silo, bazarrplus |
+| Docker apps          | `/opt/<appname>/` with `docker-compose.yml` | lingarr, libretranslate, stremthru, aiostreams, mediafusion, zilean, nzbdav, litterbox, easynews-indexer, babysitarr, remux, romm, romarr, silo, bazarrplus, trawl |
 
 ## Files Overview
 
@@ -51,6 +51,7 @@ Each installer script follows this sequence:
 | `remux.sh`          | Jellyfin-compatible media server aggregating Stremio/WebDAV/local sources (Docker, subdomain-only) |
 | `romarr.sh`         | ROMarr ROM automation wired to Prowlarr, nzbdav, Real-Debrid, decypharr and RomM (Docker, subdomain-only) |
 | `bazarr-plus.sh`    | Bazarr+ fork in Docker; migrates swizzin Bazarr and bazarr-* instances into one multi-instance install, with rollback |
+| `trawl.sh`          | TRAWL challenge solver on 127.0.0.1:8191, replaces Byparr/FlareSolverr (kept for --rollback); shared with MediaFusion (Docker) |
 | `silo.sh`           | Silo media server + PostgreSQL/Redis, admin and public URL pre-configured (Docker, subdomain-only) |
 | `romm.sh`           | RomM ROM manager + MariaDB, metadata providers and platform folders pre-configured (Docker, subdomain-only) |
 | `mediafusion.sh`    | Stremio/Kodi add-on with Torznab API (Docker, 5 containers) |

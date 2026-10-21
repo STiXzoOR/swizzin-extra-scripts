@@ -428,6 +428,10 @@ opt/swaparr/docker-compose.yml
 # === TRACEARR ===
 opt/tracearr/docker-compose.yml
 
+# === TRAWL ===
+# Stateless apart from the dashboard history; the compose file is recreated.
+opt/trawl/docker-compose.yml
+
 # === BAZARR+ ===
 # config/ (config.yaml, db/bazarr.db, provider_hub plugins) is backed up with
 # the service stopped. Logs, cache, the compose file and the provider overlays

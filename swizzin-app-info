@@ -185,6 +185,14 @@ APP_CONFIGS = {
             "apikey": "auth.password",
         },
     },
+    "trawl": {
+        "config_paths": ["/opt/trawl/docker-compose.yml"],
+        "format": "docker_compose",
+        "keys": {
+            "image": "ghcr.io/germondai/trawl:latest",
+        },
+        "default_port": 8191,
+    },
     "bazarrplus": {
         "config_paths": ["/opt/bazarrplus/config/config/config.yaml"],
         "format": "bazarr",

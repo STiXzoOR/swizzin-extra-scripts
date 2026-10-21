@@ -274,6 +274,15 @@ Instead, the installer ships an **MDBList → Stremio catalog sidecar** (`jaruba
 - Provider Hub catalog plugins can replace a built-in of the same name, which would bypass the overlays: install only providers that are not built in.
 - Settings validator gotcha: search/upgrade intervals only accept 6, 12, 24, 168 or 876000 (never). Any other value is silently reset to 6 hours.
 
+## TRAWL
+
+[TRAWL](https://github.com/germondai/trawl) (`ghcr.io/germondai/trawl`, `:baseline` on CPUs without AVX2) clears Cloudflare, Turnstile, Anubis and CAPTCHA walls. It serves the FlareSolverr API at `/v1`, so Prowlarr, Jackett and Bazarr need no change, and adds a native `/scrape` and browser-session API that MediaFusion v6's ext.to scraper requires (Byparr's sessions return `Invalid session`).
+
+- Listens on `127.0.0.1:8191` (`TRAWL_PORT`). A running Byparr or FlareSolverr is stopped and disabled, not removed (`TRAWL_REPLACE=yes` skips the prompt); `--rollback` restarts it.
+- Single process with an in-memory clearance cache (no Redis); `TRAWL_POOL_SIZE` warm browsers (default 3, about 300-400 MB each).
+- Local metrics dashboard at `/dashboard`, history in `/opt/trawl/metrics/`.
+- `mediafusion.sh` uses this shared TRAWL instead of its bundled sidecar when `/install/.trawl.lock` exists. The compose file is only written at install, so an existing MediaFusion needs `TRAWL_URL` changed and the `mediafusion-trawl` service removed by hand.
+
 ## ROMarr
 
 *arr-style ROM download automation ([BlizzHacker/romarr](https://github.com/BlizzHacker/romarr), Python, MIT). It searches Prowlarr, hands releases to a download client, verifies them against No-Intro/Redump DATs, files them into RomM's `roms/{fs_slug}` and asks RomM to scan.
