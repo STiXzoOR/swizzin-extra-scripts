@@ -128,6 +128,7 @@ declare -A APP_PATHS=(
 
     # Analytics
     ["tracearr"]="opt/tracearr"
+    ["bazarrplus"]="opt/bazarrplus"
 
     # Games
     ["romm"]="opt/romm"
@@ -176,6 +177,7 @@ declare -A SERVICE_TYPES=(
     ["nzbdav"]="system" ["newtarr"]="system" ["litterbox"]="system"
     ["romm"]="system"
     ["romarr"]="system"
+    ["bazarrplus"]="system"
     ["remux"]="system"
     ["nzbhydra2"]="system"
     ["easynews-indexer"]="system"

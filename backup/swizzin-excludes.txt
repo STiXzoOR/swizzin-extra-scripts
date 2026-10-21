@@ -428,6 +428,19 @@ opt/swaparr/docker-compose.yml
 # === TRACEARR ===
 opt/tracearr/docker-compose.yml
 
+# === BAZARR+ ===
+# config/ (config.yaml, db/bazarr.db, provider_hub plugins) is backed up with
+# the service stopped. Logs, cache, the compose file and the provider overlays
+# (all recreated by the installer) are not. The pre-migration tarballs in
+# opt/swizzin-extras/bazarrplus-backups/ are the rollback point and stay in.
+opt/bazarrplus/docker-compose.yml
+opt/bazarrplus/overlays
+opt/bazarrplus/overlays/**
+opt/bazarrplus/config/log
+opt/bazarrplus/config/log/**
+opt/bazarrplus/config/cache
+opt/bazarrplus/config/cache/**
+
 # === ROMM ===
 # MariaDB datadir + library/assets/resources are backed up (service stopped).
 # Valkey cache and the compose file (recreated by installer) are not.

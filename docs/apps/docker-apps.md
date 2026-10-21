@@ -244,6 +244,36 @@ Instead, the installer ships an **MDBList → Stremio catalog sidecar** (`jaruba
 
 ---
 
+## Bazarr+
+
+[Bazarr+](https://github.com/LavX/bazarr) is a hard fork of Bazarr (`ghcr.io/lavx/bazarr`; tags have no `v` prefix). One install handles any number of Sonarr/Radarr instances and refreshes Emby, Silo, Jellyfin and Plex after a subtitle lands.
+
+### File Layout
+
+| Path | Purpose |
+| ---- | ------- |
+| `/opt/bazarrplus/config/` | `/config` in the container: `config/config.yaml`, `db/bazarr.db`, `provider_hub/` plugins |
+| `/opt/bazarrplus/overlays/` | Provider overlays, bind-mounted read-only over the image's copies |
+| `/opt/bazarrplus/.migrated_from` | Migration record used by `--rollback` |
+| `/opt/swizzin-extras/bazarrplus-backups/<timestamp>/` | Pre-migration tarballs of every Bazarr config directory |
+
+### Migration from swizzin Bazarr
+
+- Detects `bazarr` plus every `bazarr-<name>` unit (from its `--config` dir), stops them and tars each config dir before changing anything.
+- Bazarr+ starts from a copy of the main config and database. On first boot the fork adopts upstream's schema (folds `table_*_subtitles` back, local-id PK cutover); the copy cannot be opened by upstream Bazarr afterwards.
+- Each `bazarr-<name>` instance's Sonarr/Radarr is added as an extra instance named `Sonarr <NAME>`. Its own database (history, blacklist) is not merged.
+- Old services are disabled, not removed. `--rollback` re-enables and starts them from their untouched config dirs. `BAZARRPLUS_MIGRATE=no` installs fresh instead.
+- The API key keeps working, but Bazarr+ stores it encrypted (`enc:...`), so read it from the old config if you need it.
+
+### Features
+
+- Host networking: Sonarr/Radarr, media servers and Byparr stay on `127.0.0.1`. Listens on `127.0.0.1:<port>` under `/bazarrplus/`; protect it with `bash organizr.sh --configure`.
+- Upstream's container hardening (read-only root, all capabilities dropped except CHOWN/SETUID/SETGID).
+- `FLARESOLVERR_URL` is set when something listens on `:8191` (Byparr).
+- `overlays/bazarr-plus/providers/` carries the Greek provider fixes (greeksubs Unicode Referer and fresh secCode, subs4series/subs4free Cloudflare clearance via Byparr), three-way merged onto the fork's own files.
+- Provider Hub catalog plugins can replace a built-in of the same name, which would bypass the overlays: install only providers that are not built in.
+- Settings validator gotcha: search/upgrade intervals only accept 6, 12, 24, 168 or 876000 (never). Any other value is silently reset to 6 hours.
+
 ## ROMarr
 
 *arr-style ROM download automation ([BlizzHacker/romarr](https://github.com/BlizzHacker/romarr), Python, MIT). It searches Prowlarr, hands releases to a download client, verifies them against No-Intro/Redump DATs, files them into RomM's `roms/{fs_slug}` and asks RomM to scan.

@@ -185,6 +185,16 @@ APP_CONFIGS = {
             "apikey": "auth.password",
         },
     },
+    "bazarrplus": {
+        "config_paths": ["/opt/bazarrplus/config/config/config.yaml"],
+        "format": "bazarr",
+        "keys": {
+            "port": ["general", "port"],
+            "baseurl": ["general", "base_url"],
+            "bindaddress": ["general", "ip"],
+        },
+        # API key is stored encrypted ("enc:...") by Bazarr+, so it is not read.
+    },
     "bazarr": {
         "config_paths": [
             "/opt/bazarr/data/config/config.yaml",
