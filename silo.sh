@@ -812,6 +812,14 @@ _create_subdomain_vhost() {
     local organizr_domain
     organizr_domain=$(_get_organizr_domain)
 
+    # ssl-params.conf may advertise HTTP/3 (Alt-Svc). Clients that honour it
+    # (iOS URLSession) then switch to QUIC, so this vhost must listen on QUIC
+    # too, or the handshake lands on another server's certificate.
+    local quic_listen=""
+    if grep -qs 'Alt-Svc' /etc/nginx/snippets/ssl-params.conf; then
+        quic_listen=$'    listen 443 quic;\n    listen [::]:443 quic;\n    http3 on;'
+    fi
+
     echo_progress_start "Creating subdomain nginx vhost"
 
     if [[ ! -f /etc/nginx/conf.d/map-connection-upgrade.conf ]]; then
@@ -853,6 +861,7 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
+${quic_listen}
     server_name $domain;
 
     ssl_certificate ${cert_dir}/fullchain.pem;
@@ -902,6 +911,14 @@ _create_jf_vhost() {
     local domain="$1"
     local cert_dir="/etc/nginx/ssl/$domain"
 
+    # ssl-params.conf may advertise HTTP/3 (Alt-Svc). Clients that honour it
+    # (iOS URLSession) then switch to QUIC, so this vhost must listen on QUIC
+    # too, or the handshake lands on another server's certificate.
+    local quic_listen=""
+    if grep -qs 'Alt-Svc' /etc/nginx/snippets/ssl-params.conf; then
+        quic_listen=$'    listen 443 quic;\n    listen [::]:443 quic;\n    http3 on;'
+    fi
+
     echo_progress_start "Creating Jellyfin compat nginx vhost"
     cat >"$jf_vhost" <<VHOST
 server {
@@ -925,6 +942,7 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
+${quic_listen}
     server_name $domain;
 
     ssl_certificate ${cert_dir}/fullchain.pem;
