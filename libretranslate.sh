@@ -1200,7 +1200,7 @@ case "${1:-}" in
         _update_libretranslate
         ;;
     "--remove")
-        _remove_libretranslate "$2"
+        _remove_libretranslate "${2:-}"
         ;;
     "--register-panel")
         if [[ ! -f "/install/.$app_lockname.lock" ]]; then

@@ -1088,7 +1088,7 @@ case "${1:-}" in
         _update_lingarr
         ;;
     "--remove")
-        _remove_lingarr "$2"
+        _remove_lingarr "${2:-}"
         ;;
     "--register-panel")
         if [[ ! -f "/install/.$app_lockname.lock" ]]; then
