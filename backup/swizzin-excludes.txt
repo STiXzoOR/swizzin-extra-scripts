@@ -489,6 +489,21 @@ var/log/jellyfin/**
 var/lib/jellyfin/metadata
 var/lib/jellyfin/metadata/**
 
+# === SILO ===
+# Keep postgres/ (datadir, service stopped), artwork/, plugins/ and compat/.
+# Exclude the compose file (recreated by installer), the Redis cache, temp
+# transcodes, prepared downloads and the installer's pre-update pg_dumps
+# (redundant with the datadir).
+opt/silo/docker-compose.yml
+opt/silo/redis
+opt/silo/redis/**
+opt/silo/transcode
+opt/silo/transcode/**
+opt/silo/download-artifacts
+opt/silo/download-artifacts/**
+opt/silo/db-dumps
+opt/silo/db-dumps/**
+
 # === PLEX ===
 var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Cache
 var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Cache/**

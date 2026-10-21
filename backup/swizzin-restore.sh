@@ -61,6 +61,7 @@ declare -A APP_PATHS=(
     # Media servers
     ["emby"]="var/lib/emby"
     ["jellyfin"]="var/lib/jellyfin"
+    ["silo"]="opt/silo"
     ["plex"]="var/lib/plexmediaserver"
     ["tautulli"]="opt/tautulli"
     ["airsonic"]="var/lib/airsonic"
@@ -157,6 +158,7 @@ declare -A SERVICE_TYPES=(
     ["sickgear"]="user" ["sonarr"]="user" ["radarr"]="user" ["prowlarr"]="user"
     ["airsonic"]="system" ["calibreweb"]="user" ["emby"]="system"
     ["jellyfin"]="system" ["mango"]="user" ["navidrome"]="user"
+    ["silo"]="system"
     ["plex"]="system" ["tautulli"]="user"
     ["deluge"]="user" ["deluged"]="user" ["deluge-web"]="user"
     ["flood"]="user" ["qbittorrent"]="user" ["rtorrent"]="user"

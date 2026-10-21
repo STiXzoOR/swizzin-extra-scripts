@@ -46,6 +46,7 @@ This backup system works with any SSH-accessible borg repository:
 | **stremthru**                  | Debrid streaming proxy (SQLite)        |
 | **aiostreams**                 | Stremio super-addon (dotenv + JSON state) |
 | **remux**                      | Jellyfin-compatible media server (SQLite) |
+| **silo**                       | Media server with Jellyfin-compatible API (PostgreSQL) |
 | **romm**                       | ROM manager + in-browser player (MariaDB) |
 | **romarr**                     | ROM download automation (JSON state)   |
 | **mediafusion**                | Stremio add-on + Torznab (Postgres)    |

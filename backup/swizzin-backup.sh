@@ -30,7 +30,7 @@
 #   flaresolverr, huntarr, subgen, lingarr, cleanuparr, seerr, overseerr, jellyseerr,
 #   mdblist-sync, mdblist-filter-proxy, mdblistarr, stremthru, mediafusion,
 #   zilean, nzbdav, newtarr, swaparr, litterbox, nzbhydra2, aiostreams,
-#   easynews-indexer, babysitarr, tailscale, remux, romm, romarr
+#   easynews-indexer, babysitarr, tailscale, remux, romm, romarr, silo
 #===============================================================================
 
 set -euo pipefail
@@ -192,8 +192,9 @@ declare -A SERVICE_TYPES=(
     ["nzbhydra2"]="system"
     ["easynews-indexer"]="system"
 
-    # Jellyfin-compatible media server (Docker)
+    # Jellyfin-compatible media servers (Docker)
     ["remux"]="system"
+    ["silo"]="system"
 
     # Arr Monitoring / Self-healing
     ["babysitarr"]="system"
@@ -236,7 +237,7 @@ SERVICE_STOP_ORDER=(
     # Indexers/bypass
     jackett nzbhydra nzbhydra2 easynews-indexer byparr flaresolverr stremthru aiostreams mediafusion zilean rclone-nzbdav nzbdav
     # Media servers
-    emby jellyfin plex remux airsonic calibreweb mango navidrome
+    emby jellyfin plex remux silo airsonic calibreweb mango navidrome
     # Download clients
     flood deluge deluged deluge-web qbittorrent rtorrent transmission
     nzbget sabnzbd
@@ -264,6 +265,7 @@ declare -A SERVICE_STOP_CRITICAL=(
     ["nzbdav"]=1
     ["rclone-nzbdav"]=1
     ["remux"]=1
+    ["silo"]=1
     ["decypharr"]=1
     ["tracearr"]=1
     ["romm"]=1

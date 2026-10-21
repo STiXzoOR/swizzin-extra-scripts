@@ -521,6 +521,17 @@ APP_CONFIGS = {
         # No default_port — host port is allocated by the installer and lives
         # in swizdb at remux/port (compose maps 127.0.0.1:<port>:3000).
     },
+    "silo": {
+        "config_paths": ["/opt/silo/.env"],
+        "format": "dotenv",
+        "keys": {
+            "db_name": "POSTGRES_DB",
+            "db_user": "POSTGRES_USER",
+        },
+        # No default_port — host ports are allocated by the installer and live
+        # in swizdb at silo/port (web, compose maps 127.0.0.1:<port>:8080),
+        # silo/jf_port (Jellyfin compat, :8096) and silo/abs_port (:13378).
+    },
     "romarr": {
         "config_paths": ["/opt/romarr/.env"],
         "format": "dotenv",

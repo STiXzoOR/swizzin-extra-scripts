@@ -14,6 +14,7 @@ A collection of installer scripts for integrating additional applications into [
 | [plex.sh](#plex)                      | [Plex](https://plex.tv/)                                     | Extended Plex installer with subdomain support                   |
 | [emby.sh](#emby)                      | [Emby](https://emby.media/)                                  | Extended Emby installer with subdomain and Premiere bypass       |
 | [jellyfin.sh](#jellyfin)              | [Jellyfin](https://jellyfin.org/)                            | Extended Jellyfin installer with subdomain support               |
+| [silo.sh](#silo)                      | [Silo](https://siloserver.org/)                              | Media server with Jellyfin/Audiobookshelf-compatible APIs        |
 | [organizr.sh](#organizr)              | [Organizr](https://github.com/causefx/Organizr)              | Extended Organizr installer with subdomain and SSO support       |
 | [seerr.sh](#seerr)                    | [Seerr](https://github.com/seerr-team/seerr)                 | Media request platform (Overseerr fork)                          |
 | [byparr.sh](#byparr)                  | [Byparr](https://github.com/ThePhaseless/Byparr)             | FlareSolverr alternative for bypassing anti-bot protections      |
@@ -311,6 +312,46 @@ bash jellyfin.sh --remove
 - WebOS LG TV CORS headers
 - Range/If-Range headers for proper media streaming
 - Prometheus `/metrics` endpoint with private network restrictions
+
+---
+
+### Silo
+
+[Silo](https://siloserver.org/) media server in Docker with bundled PostgreSQL (pgvector) and Redis. Subdomain-only (upstream has no base-path setting).
+
+```bash
+# Interactive setup (prompts for domain)
+bash silo.sh
+
+# Automated
+SILO_DOMAIN="silo.example.com" bash silo.sh
+
+# Dump the database, then pull and recreate
+bash silo.sh --update
+
+# Expose the Jellyfin compat API for client apps on its own hostname
+SILO_JF_DOMAIN="silo-jf.example.com" bash silo.sh --jf-subdomain
+bash silo.sh --jf-subdomain --revert
+
+# Container and setup status
+bash silo.sh --status
+
+# Complete removal
+bash silo.sh --remove
+```
+
+**Subdomain Access:** `https://silo.example.com/`
+
+**Features:**
+
+- Admin account (swizzin master user + password) claimed through the API before the vhost goes live; Silo's first-run setup is first-come
+- Public URL set automatically; finish the wizard and add libraries in the web UI
+- PostgreSQL and Redis stay on the compose network (no host ports); PostgreSQL auto-tuning bounded to its container budget
+- Web UI plus Jellyfin- and Audiobookshelf-compatible listeners on allocated localhost ports
+- `--jf-subdomain` publishes the Jellyfin compat API on a second hostname so Jellyfin/Emby client apps (Infuse, Swiftfin, Jellyfin apps) can connect, and sets its public URL
+- Media (`/mnt` by default, `SILO_MEDIA_ROOT`) mounted read-only at the same path
+- VA-API passthrough when `/dev/dri/renderD128` exists
+- `--update` takes a `pg_dump` first (keeps the last 3); upstream offers no in-place rollback
 
 ---
 

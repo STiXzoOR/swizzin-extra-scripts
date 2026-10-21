@@ -1,6 +1,6 @@
 # Media Server Subdomain Scripts
 
-plex.sh, emby.sh, and jellyfin.sh follow a common pattern for subdomain conversion.
+plex.sh, emby.sh, and jellyfin.sh follow a common pattern for subdomain conversion. silo.sh is a separate Docker installer; see [Silo](#silo).
 
 ## Common Behavior
 
@@ -78,3 +78,25 @@ bash emby.sh --premiere --revert  # Disable Premiere bypass
 - `/admin/service/registration/getStatus`
 - `/admin/service/appstore/register`
 - `/emby/Plugins/SecurityInfo`
+
+---
+
+## Silo
+
+`silo.sh` is a Docker installer, not a `box install` wrapper, and is subdomain-only (upstream recommends a dedicated hostname and has no base-path setting).
+
+| Item | Value |
+| ---- | ----- |
+| Stack | `ghcr.io/silo-server/silo-server:latest` + `pgvector/pgvector:pg18` + `redis:alpine` in `/opt/silo` |
+| Ports | web, Jellyfin compat and Audiobookshelf compat on allocated `127.0.0.1` ports (swizdb `silo/port`, `silo/jf_port`, `silo/abs_port`) |
+| Secrets | `/opt/silo/.env` (600): `SECRET_KEY`, `POSTGRES_PASSWORD` |
+| Admin | `/opt/silo/.admin_credentials` (600) |
+
+- **Setup is first-come.** `POST /api/v2/auth/setup` has no secret, so the installer claims the admin before the vhost exists, and aborts rather than exposing an unclaimed server.
+- **Settings writes need `If-Match`.** `PUT /api/v2/admin/settings` takes the ETag from `GET /api/v2/admin/settings`; the per-key route returns 404 for unset keys.
+- **PostgreSQL tuning.** Silo tunes PostgreSQL itself via `ALTER SYSTEM`, but only when `POSTGRES_TUNE=auto` is in its environment. Its default memory budget is 75% of the host's RAM, so the installer pins `POSTGRES_TUNE_MEMORY` and `POSTGRES_TUNE_CPUS` to the postgres container's limits and restarts postgres once after the first boot (`shared_buffers` needs a restart).
+- **Port 8096.** The Jellyfin compat listener defaults to 8096, the Emby/Jellyfin port, so the host side is remapped.
+- **Client apps.** Jellyfin/Emby clients talk to the compat listener, not the web UI. `--jf-subdomain` (or `SILO_JF_DOMAIN`) gives it its own vhost (`/etc/nginx/sites-available/silo-jf`) and certificate, and sets `jellyfin_compat.public_url`; `--revert` removes it. Upstream recommends one hostname per published listener.
+- **Autopulse / Autoscan.** Silo accepts the stock `jellyfin` target on its Jellyfin compat port (`POST /Library/Media/Updated`, `X-Emby-Token: sa_...` admin API key), so an existing arr → Autopulse pipeline can feed Silo with one extra target and no new arr webhooks.
+- **No libraries are created.** A first scan of a large network or FUSE-backed library is heavy; add folders deliberately in the web UI.
+- **`SECRET_KEY` must be backed up separately.** Losing it makes every encrypted secret unrecoverable.
