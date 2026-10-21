@@ -919,6 +919,14 @@ _create_subdomain_vhost() {
         csp_header="add_header Content-Security-Policy \"frame-ancestors 'self' https://$organizr_domain\";"
     fi
 
+    # ssl-params.conf may advertise HTTP/3 (Alt-Svc). Clients that honour it
+    # (iOS URLSession) then switch to QUIC, so this vhost must listen on QUIC
+    # too, or the handshake lands on another server's certificate.
+    local quic_listen=""
+    if grep -qs 'Alt-Svc' /etc/nginx/snippets/ssl-params.conf; then
+        quic_listen=$'    listen 443 quic;\n    listen [::]:443 quic;\n    http3 on;'
+    fi
+
     cat >"$subdomain_vhost" <<VHOST
 server {
     listen 80;
@@ -941,6 +949,7 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
+${quic_listen}
     server_name $domain;
 
     ssl_certificate ${cert_dir}/fullchain.pem;
