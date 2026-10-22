@@ -1,0 +1,32 @@
+{
+  "zurg_base": "/mnt/zurg",
+  "torbox_base": "/mnt/torbox",
+  "symlinks_base": "/mnt/symlinks",
+  "downloads_base": "/mnt/symlinks/downloads",
+
+  "folder_mappings": {
+    "movies":    ["radarr",    "movie"],
+    "movies-4k": ["radarr-4k", "movie"],
+    "series":    ["sonarr",    "series"]
+  },
+
+  "arr_instances": {
+    "radarr":    {"type": "radarr", "config_paths": ["/home/{user}/.config/Radarr/config.xml"]},
+    "radarr-4k": {"type": "radarr"},
+    "sonarr":    {"type": "sonarr", "config_paths": ["/home/{user}/.config/Sonarr/config.xml"]}
+  },
+
+  "library_folders": {
+    "movies":    {"instance": "radarr",    "type": "movie",  "zurg_hints": ["movies"],    "resolution": "1080p"},
+    "movies-4k": {"instance": "radarr-4k", "type": "movie",  "zurg_hints": ["movies-4k"], "resolution": "2160p"},
+    "series":    {"instance": "sonarr",    "type": "series", "zurg_hints": ["series"],    "resolution": "1080p"}
+  },
+
+  "optional_mounts": [["/mnt/nzbdav/completed-symlinks", "rclone-nzbdav"]],
+
+  "nzbdav": {
+    "config_dir": "/opt/nzbdav/config",
+    "categories": ["radarr", "radarr-4k", "sonarr"],
+    "default_categories": ["radarr-4k"]
+  }
+}

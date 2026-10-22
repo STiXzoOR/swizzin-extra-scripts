@@ -290,7 +290,8 @@ def dedup_radarr(name: str, api: ArrAPI) -> int:
     log(f"  Found {len(dupes)} duplicate groups")
     removed = 0
 
-    for (title, year), entries in sorted(dupes.items()):
+    for key, entries in sorted(dupes.items()):
+        title, year = key.rsplit("|", 1)
         best = pick_best_movie(entries)
         to_remove = [e for e in entries if e["id"] != best["id"]]
 
