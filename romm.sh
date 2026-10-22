@@ -118,8 +118,9 @@ app_icon_name="${app_name}"
 app_icon_url="https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/romm.png"
 
 app_image="rommapp/romm:latest"
-# MariaDB LTS line — pinned to a major so `--update` never jumps majors
-db_image="mariadb:11.8"
+# Pinned to a major so `--update` never jumps majors unattended; bump it
+# deliberately (MARIADB_AUTO_UPGRADE upgrades the system tables on first start)
+db_image="mariadb:13.0"
 app_container_port="8080"
 
 app_dir="/opt/romm"
@@ -467,6 +468,7 @@ _write_env() {
     _env_default MARIADB_USER "romm-user"
     _env_default MARIADB_PASSWORD "$db_pass"
     _env_default MARIADB_ROOT_PASSWORD "$(_gen_secret 24)"
+    _env_default MARIADB_AUTO_UPGRADE "1"
 
     # Auth
     _env_default ROMM_AUTH_SECRET_KEY "$(_gen_secret 32)"

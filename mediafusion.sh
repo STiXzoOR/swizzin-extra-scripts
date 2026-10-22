@@ -535,7 +535,7 @@ ${disabled_providers_env:+${disabled_providers_env}
       - no-new-privileges:true
 
   mediafusion-redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: mediafusion-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru

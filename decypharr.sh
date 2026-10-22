@@ -17,7 +17,7 @@ set -euo pipefail
 # v2.5.1 = upstream v2.5 + those patches. The usenet cache_test fix carried in
 # v2.3.1 was dropped: upstream removed that file in the v2.5 streaming rewrite.
 
-DECYPHARR_FORK_TAG="v2.5.1"
+DECYPHARR_FORK_TAG="v2.7.1"
 DECYPHARR_NGINX_SCHEMA=2
 
 . /etc/swizzin/sources/globals.sh

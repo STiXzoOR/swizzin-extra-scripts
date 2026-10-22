@@ -244,7 +244,7 @@ services:
       - ALL
 
   tracearr-postgres:
-    image: timescale/timescaledb-ha:pg18.1-ts2.25.0
+    image: timescale/timescaledb-ha:pg18.6-ts2.31.0
     container_name: tracearr-postgres
     restart: unless-stopped
     shm_size: 512m
@@ -465,7 +465,7 @@ _remove_tracearr() {
     # Remove all Docker images
     echo_progress_start "Removing Docker images"
     docker rmi ghcr.io/connorgallopo/tracearr:latest >>"$log" 2>&1 || true
-    docker rmi timescale/timescaledb-ha:pg18.1-ts2.25.0 >>"$log" 2>&1 || true
+    docker rmi timescale/timescaledb-ha:pg18.6-ts2.31.0 >>"$log" 2>&1 || true
     docker rmi redis:8-alpine >>"$log" 2>&1 || true
     echo_progress_done "Docker images removed"
 

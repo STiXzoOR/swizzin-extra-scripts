@@ -121,7 +121,7 @@ app_lockname="${app_name}"
 app_icon_name="${app_name}"
 app_icon_url="https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/romarr.png"
 
-app_version="${ROMARR_VERSION:-1.0.0}"
+app_version="${ROMARR_VERSION:-1.6.0}"
 app_image="ghcr.io/blizzhacker/romarr:${app_version}"
 
 app_dir="/opt/romarr"

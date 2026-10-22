@@ -179,7 +179,7 @@ _install_docker() {
 # ==============================================================================
 
 _install_zilean() {
-    mkdir -p "${app_dir}/data" "${app_dir}/pgdata"
+    mkdir -p "${app_dir}/data" "${app_dir}/pgdata18"
 
     # Generate PostgreSQL password
     local pg_password
@@ -194,7 +194,7 @@ _install_zilean() {
     cat >"${app_dir}/docker-compose.yml" <<COMPOSE
 services:
   zilean-postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     container_name: zilean-postgres
     restart: unless-stopped
     ports:
@@ -203,9 +203,10 @@ services:
       POSTGRES_DB: zilean
       POSTGRES_USER: zilean
       POSTGRES_PASSWORD: ${pg_password}
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - ${app_dir}/pgdata:/var/lib/postgresql/data
+      # Postgres 18+ images keep the cluster in a versioned subdir; a new major
+      # needs a dump/restore into a fresh pgdata<major> dir
+      - ${app_dir}/pgdata18:/var/lib/postgresql/18/docker
     shm_size: 256m
     security_opt:
       - no-new-privileges:true
