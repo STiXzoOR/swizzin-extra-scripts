@@ -141,7 +141,7 @@ mdblist_app="${mdblist_dir}/app"
 mdblist_service_name="mdblist" # compose service name == in-network hostname
 mdblist_container="remux-mdblist"
 mdblist_port="64321" # addon's internal listen port (never host-published)
-mdblist_node_image="node:20-alpine"
+mdblist_node_image="node:24-alpine"
 mdblist_src_repo="jaruba/stremio-mdblist"
 mdblist_src_commit="af4e8c956f031624f75bd77483878abb9136e230"
 

@@ -279,10 +279,13 @@ _install_app() {
         exit 1
     }
 
-    # Resolve absolute Node path and bake into systemd
-    local node_path
-    node_path="$(su - "$user" -c "$fnm_env; which node" 2>>"$log")"
-    if [ -z "$node_path" ]; then
+    # Bake fnm's "default" alias into systemd. `which node` inside an fnm
+    # shell returns a per-shell fnm_multishells symlink that pins the version
+    # of that moment and can be cleaned up; the alias follows `fnm default`.
+    local node_path user_home
+    user_home=$(getent passwd "$user" | cut -d: -f6)
+    node_path="${user_home}/.local/share/fnm/aliases/default/bin/node"
+    if [ ! -x "$node_path" ]; then
         echo_error "Could not resolve Node path"
         exit 1
     fi
