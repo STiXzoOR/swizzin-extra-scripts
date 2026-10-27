@@ -224,6 +224,9 @@ services:
     ports:
       - "127.0.0.1:${app_port}:8191"
     shm_size: 1gb
+    # Browser profiles/cache are ephemeral; keep their writes off the SSDs.
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,mode=1777
     environment:
       SESSION_CACHE_DRIVER: memory
       BROWSER_POOL_SIZE: "${pool}"

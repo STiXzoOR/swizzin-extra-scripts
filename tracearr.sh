@@ -261,6 +261,8 @@ services:
       - timescaledb.telemetry_level=off
       - -c
       - port=${pg_port}
+      - -c
+      - listen_addresses=127.0.0.1
     volumes:
       - ${app_dir}/pgdata:/home/postgres/pgdata/data
     healthcheck:
@@ -276,7 +278,7 @@ services:
     container_name: tracearr-redis
     restart: unless-stopped
     network_mode: host
-    command: redis-server --appendonly yes --port ${redis_port}
+    command: redis-server --appendonly yes --port ${redis_port} --bind 127.0.0.1
     volumes:
       - ${app_dir}/redis:/data
     healthcheck:
