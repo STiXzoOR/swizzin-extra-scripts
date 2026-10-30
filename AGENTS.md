@@ -28,6 +28,7 @@ Swizzin installer scripts - bash installation scripts for integrating applicatio
 - [Disaster Recovery](docs/subsystems/disaster-recovery.md) - Bare-metal restore runbook (Hetzner rescue → MD/partitions → borg extract → grub)
 - [Update System](docs/subsystems/update-system.md) - `--update` flag with rollback
 - [Watchdog](docs/subsystems/watchdog.md) - Health monitoring for Emby, Plex, Jellyfin
+- [Grab-Loop Protection](docs/subsystems/grab-guard.md) - `nzb-grab-guard` proxy in front of Hydra + pending-release loop breaker
 - [App Info Tool](docs/subsystems/app-info.md) - swizzin-app-info utility
 
 ## Shared Libraries
