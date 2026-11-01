@@ -32,6 +32,8 @@ Env:
     GUARD_SUCCESS_TTL    seconds to serve a cached NZB, default 604800 (7d)
     GUARD_FAILURE_TTL    seconds to block a failed release, default 86400 (24h)
     GUARD_LOOP_ALERT     absorbed repeats per release per day before alerting, default 10
+    GUARD_ALERT_COOLDOWN seconds between loop notifications, default 21600 (6h); loops found
+                         in between are batched into one digest
     GUARD_NOTIFY_LIB     notification library, default /opt/swizzin-extras/lib/notifications.sh
     GUARD_NOTIFY_CONF    channel config (DISCORD_WEBHOOK, PUSHOVER_*, ...), default
                          $CREDENTIALS_DIRECTORY/watchdog.conf (systemd LoadCredential of
@@ -60,6 +62,7 @@ STATE_DIR = Path(os.environ.get("GUARD_STATE_DIR") or os.environ.get("STATE_DIRE
 SUCCESS_TTL = int(os.environ.get("GUARD_SUCCESS_TTL", "604800"))
 FAILURE_TTL = int(os.environ.get("GUARD_FAILURE_TTL", "86400"))
 LOOP_ALERT = int(os.environ.get("GUARD_LOOP_ALERT", "10"))
+ALERT_COOLDOWN = int(os.environ.get("GUARD_ALERT_COOLDOWN", "21600"))
 NOTIFY_LIB = os.environ.get("GUARD_NOTIFY_LIB", "/opt/swizzin-extras/lib/notifications.sh")
 NOTIFY_CONF = os.environ.get("GUARD_NOTIFY_CONF") or os.path.join(
     os.environ.get("CREDENTIALS_DIRECTORY", "/opt/swizzin-extras"), "watchdog.conf")
@@ -77,6 +80,10 @@ NZB_DIR = STATE_DIR / "nzb"
 _db_lock = threading.Lock()
 _id_locks: dict[str, threading.Lock] = {}
 _id_locks_lock = threading.Lock()
+# Loops detected but not yet notified, as (name, absorbed, status, agent); flushed as one digest.
+_pending_alerts: list[tuple[str, int, str, str]] = []
+_alert_lock = threading.Lock()
+_last_alert = 0.0
 
 
 def log(msg: str) -> None:
@@ -132,10 +139,36 @@ def _record_absorbed(rid: str, row: tuple, agent: str) -> None:
         DB.commit()
     if fire:
         name = title or f"Hydra release {rid}"
-        msg = (f"{name} was requested {absorbed}x in 24h ({status}); answered locally, "
-               f"indexer not contacted. Client: {agent or 'unknown'}. Something is in a grab loop.")
-        log(f"LOOP {rid} {msg}")
-        _notify("NZB grab loop detected", msg)
+        log(f"LOOP {rid} {name} was requested {absorbed}x in 24h ({status}); answered locally, "
+            f"indexer not contacted. Client: {agent or 'unknown'}.")
+        with _alert_lock:
+            _pending_alerts.append((name, absorbed, status, agent))
+        _flush_alerts()
+
+
+def _flush_alerts() -> None:
+    """Send pending loop alerts as one digest, at most once per ALERT_COOLDOWN."""
+    global _last_alert
+    with _alert_lock:
+        if not _pending_alerts or time.time() - _last_alert < ALERT_COOLDOWN:
+            return
+        batch = _pending_alerts[:]
+        _pending_alerts.clear()
+        _last_alert = time.time()
+    clients = sorted({(a or "unknown").split(" ")[0] for _, _, _, a in batch})
+    lines = [f"- {name} ({n}x, {status})" for name, n, status, _ in batch[:8]]
+    if len(batch) > 8:
+        lines.append(f"- ... and {len(batch) - 8} more (journalctl -u nzb-grab-guard | grep LOOP)")
+    msg = (f"{len(batch)} release(s) requested {LOOP_ALERT}+ times in 24h by {', '.join(clients)}. "
+           f"All repeats were answered locally; no indexer was contacted.\n" + "\n".join(lines))
+    _notify("NZB grab loop detected", msg)
+
+
+def _alert_flusher() -> None:
+    """Deliver loops batched during a cooldown once it ends."""
+    while True:
+        time.sleep(300)
+        _flush_alerts()
 
 
 def _notify(title: str, msg: str) -> None:
@@ -320,10 +353,12 @@ def main():
     NZB_DIR.mkdir(parents=True, exist_ok=True)
     DB = _db()
     threading.Thread(target=_janitor, daemon=True).start()
+    threading.Thread(target=_alert_flusher, daemon=True).start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
     log(f"nzb-grab-guard listening on {HOST}:{PORT} -> {UPSTREAM.geturl()} "
-        f"(success_ttl={SUCCESS_TTL}s failure_ttl={FAILURE_TTL}s loop_alert={LOOP_ALERT})")
+        f"(success_ttl={SUCCESS_TTL}s failure_ttl={FAILURE_TTL}s loop_alert={LOOP_ALERT} "
+        f"alert_cooldown={ALERT_COOLDOWN}s)")
     server.serve_forever()
 
 
