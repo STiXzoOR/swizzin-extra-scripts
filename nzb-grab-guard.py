@@ -31,7 +31,8 @@ Env:
     GUARD_STATE_DIR      sqlite + NZB cache, default $STATE_DIRECTORY or /var/lib/nzb-grab-guard
     GUARD_SUCCESS_TTL    seconds to serve a cached NZB, default 604800 (7d)
     GUARD_FAILURE_TTL    seconds to block a failed release, default 86400 (24h)
-    GUARD_LOOP_ALERT     absorbed repeats per release per day before alerting, default 10
+    GUARD_LOOP_ALERT     absorbed repeats per release per day before alerting, default 10;
+                         only releases that downloaded fine alert, failed ones are just logged
     GUARD_ALERT_COOLDOWN seconds between loop notifications, default 21600 (6h); loops found
                          in between are batched into one digest
     GUARD_NOTIFY_LIB     notification library, default /opt/swizzin-extras/lib/notifications.sh
@@ -141,6 +142,10 @@ def _record_absorbed(rid: str, row: tuple, agent: str) -> None:
         name = title or f"Hydra release {rid}"
         log(f"LOOP {rid} {name} was requested {absorbed}x in 24h ({status}); answered locally, "
             f"indexer not contacted. Client: {agent or 'unknown'}.")
+        if status != "ok":
+            # Re-offering a dead release is normal search behaviour (every new search returns
+            # it again) and never reaches an indexer; only repeat grabs of a good NZB are a loop.
+            return
         with _alert_lock:
             _pending_alerts.append((name, absorbed, status, agent))
         _flush_alerts()
