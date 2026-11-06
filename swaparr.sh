@@ -412,6 +412,12 @@ _update_swaparr() {
         exit 1
     fi
 
+    # A disabled service means it was deliberately turned off; updating would restart the containers
+    if ! systemctl -q is-enabled "$app_servicefile" 2>/dev/null; then
+        echo_info "${app_pretty} service is disabled, skipping update"
+        exit 0
+    fi
+
     echo_info "Updating ${app_pretty}..."
 
     # Re-discover Starr instances to pick up new apps or changed API keys
