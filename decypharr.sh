@@ -16,8 +16,12 @@ set -euo pipefail
 #
 # v2.5.1 = upstream v2.5 + those patches. The usenet cache_test fix carried in
 # v2.3.1 was dropped: upstream removed that file in the v2.5 streaming rewrite.
+#
+# Fork tags carry a -swizzin.N suffix because upstream now publishes v2.7.x itself.
+# v2.7.2-swizzin.1 also answers provider rejections with 409 on the qBittorrent API,
+# so Sonarr v5 skips the one release instead of parking the whole torrent batch.
 
-DECYPHARR_FORK_TAG="v2.7.1"
+DECYPHARR_FORK_TAG="v2.7.2-swizzin.1"
 DECYPHARR_NGINX_SCHEMA=2
 
 . /etc/swizzin/sources/globals.sh
