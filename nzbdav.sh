@@ -117,7 +117,7 @@ _verbose() {
 # pulling.
 
 NZBDAV_FORK_REPO="infinidysk/infinidysk"
-NZBDAV_FALLBACK_TAG="v1.2.4"
+NZBDAV_FALLBACK_TAG="v1.7.1"
 if [[ -z "${NZBDAV_FORK_TAG:-}" ]]; then
     NZBDAV_FORK_TAG=$(curl -sf --max-time 10 "https://api.github.com/repos/${NZBDAV_FORK_REPO}/releases/latest"         | grep -oP '"tag_name":\s*"\K[^"]+' || true)
     NZBDAV_FORK_TAG="${NZBDAV_FORK_TAG:-${NZBDAV_FALLBACK_TAG}}"
@@ -672,6 +672,11 @@ _setup_rclone() {
             # The rclone VFS cache already caches every streamed byte; NZBDav's
             # own segment cache would write it to disk a second time.
             _nzbdav_api_post "usenet.segment-cache.enabled" "false" || true
+
+            # nginx terminates TLS, so the backend sees http:// and v1.6+
+            # rejects login form POSTs whose Origin is https:// ("Action
+            # request origin rejected" -> 400). Honor X-Forwarded-Proto/Host.
+            _nzbdav_api_post "general.trust-proxy" "true" || true
         fi
     fi
 
@@ -991,6 +996,13 @@ COMPOSE
         else
             echo_error "rclone mount did not come back up. Recover with: systemctl reset-failed ${app_mount_servicefile} && systemctl start ${app_mount_servicefile}"
         fi
+    fi
+
+    # Existing installs predate the v1.6 Origin check: without trust-proxy the
+    # login POST through nginx (TLS-terminated) is rejected with a 400.
+    if _wait_for_health 60; then
+        _nzbdav_api_post "general.trust-proxy" "true" \
+            || echo_warn "Could not enable general.trust-proxy; login behind nginx may fail (Settings > General)"
     fi
 
     # Clean up old dangling images
